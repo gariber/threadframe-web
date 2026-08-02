@@ -142,23 +142,30 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   draw();
 
   // 圖片比文字慢，先讓卡片出現再逐步補上，不要整段卡著等。
-  if (data.avatar) {
-    try {
-      assets.avatar = await urlToImage(proxyImage(data.avatar));
-      draw();
-    } catch {
-      // 頭像載不到不影響其他內容，留空即可。
-    }
-  }
+  // 頭像與貼文圖片同時開始下載 —— 先前是等頭像載完才動貼文圖片，白白多等一趟。
+  const avatarJob = data.avatar
+    ? urlToImage(proxyImage(data.avatar))
+        .then((img) => {
+          assets.avatar = img;
+          draw();
+        })
+        .catch(() => {
+          // 頭像載不到不影響其他內容，留空即可。
+        })
+    : Promise.resolve();
 
-  if (data.images.length > 0) {
-    const loaded = await Promise.allSettled(data.images.map((u) => urlToImage(proxyImage(u))));
-    assets.images = loaded
-      .filter((r): r is PromiseFulfilledResult<HTMLImageElement> => r.status === "fulfilled")
-      .map((r) => r.value);
-    updateImageCount();
-    draw();
-  }
+  const imagesJob =
+    data.images.length > 0
+      ? Promise.allSettled(data.images.map((u) => urlToImage(proxyImage(u)))).then((loaded) => {
+          assets.images = loaded
+            .filter((r): r is PromiseFulfilledResult<HTMLImageElement> => r.status === "fulfilled")
+            .map((r) => r.value);
+          updateImageCount();
+          draw();
+        })
+      : Promise.resolve();
+
+  await Promise.all([avatarJob, imagesJob]);
 }
 
 async function autoFill(url: string): Promise<void> {

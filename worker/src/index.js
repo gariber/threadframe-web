@@ -73,10 +73,26 @@ function findPost(html) {
   }
 }
 
+/**
+ * candidates[0] 是最大的那張（常見 1500px 以上）。卡片輸出寬度固定 1080px，
+ * 多圖時每格更只有 540px，傳最大張純粹是浪費頻寬 —— 挑剛好夠用的即可。
+ */
+function pickImage(node) {
+  const list = node?.image_versions2?.candidates;
+  if (!Array.isArray(list)) return null;
+
+  const usable = list.filter((c) => c?.url && c?.width);
+  if (usable.length === 0) return null;
+
+  const enough = usable.filter((c) => c.width >= 1080).sort((a, b) => a.width - b.width);
+  if (enough.length > 0) return enough[0].url;
+  return usable.sort((a, b) => b.width - a.width)[0].url;
+}
+
 function collectImages(post) {
   const out = [];
   const push = (node) => {
-    const url = node?.image_versions2?.candidates?.[0]?.url;
+    const url = pickImage(node);
     if (url) out.push(url);
   };
   if (Array.isArray(post.carousel_media)) post.carousel_media.forEach(push);
@@ -111,6 +127,9 @@ async function handlePost(target) {
         accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",
+      // 同一則貼文短時間內重複開啟時走 Cloudflare 邊緣快取，
+      // 省掉再抓一次那份近 900KB 的 HTML。
+      cf: { cacheTtl: 300, cacheEverything: true },
     });
 
     lastStatus = upstream.status;
@@ -179,6 +198,8 @@ async function handleImage(target) {
 
   const upstream = await fetch(parsed.toString(), {
     headers: { "user-agent": CRAWLER_UA, accept: "image/*" },
+    // 圖片內容不會變，放心讓邊緣快取久一點。
+    cf: { cacheTtl: 86400, cacheEverything: true },
   });
   if (!upstream.ok) return json({ error: "upstream", status: upstream.status }, 502);
 
