@@ -26,6 +26,7 @@ export type Post = {
   likes: string;
   replies: string;
   reposts: string;
+  shares: string;
   /** 貼文原始網址，僅顯示於卡片底部（可關閉），不會被送到任何地方。 */
   url: string;
   comments: Comment[];
@@ -50,9 +51,13 @@ export type Style = {
   showStats: boolean;
   showTime: boolean;
   showImages: boolean;
+  /** 最多顯示幾張貼文圖片（1–4）。 */
+  imageLimit: number;
   showUrl: boolean;
-  showComments: boolean;
+  /** 展示幾則留言，0 表示不展示。 */
+  commentLimit: number;
   maskIdentity: boolean;
+  fontId: string;
 };
 
 export type AppState = { post: Post; style: Style };
@@ -67,6 +72,7 @@ export const emptyPost = (): Post => ({
   likes: "",
   replies: "",
   reposts: "",
+  shares: "",
   url: "",
   comments: [],
 });
@@ -87,9 +93,11 @@ export const defaultStyle = (): Style => ({
   showStats: true,
   showTime: true,
   showImages: true,
+  imageLimit: 4,
   showUrl: false,
-  showComments: true,
+  commentLimit: 3,
   maskIdentity: false,
+  fontId: "sans",
 });
 
 const KEY = "threadframe.v1";

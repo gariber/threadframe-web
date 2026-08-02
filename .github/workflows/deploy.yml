@@ -35,7 +35,11 @@ jobs:
       # build script 本身包含 tsc --noEmit，型別錯誤會擋下部署。
       - run: npm run build
 
+      # enablement 會在 Pages 還沒開啟時自動開啟並設成 GitHub Actions 來源，
+      # 省掉到 Settings → Pages 手動設定那一步。
       - uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:

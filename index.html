@@ -19,7 +19,10 @@
   </head>
   <body>
     <div class="wrap">
-      <h1>ThreadFrame</h1>
+      <div class="topbar">
+        <h1>ThreadFrame</h1>
+        <button id="reset" type="button" title="回到預設排版">重設</button>
+      </div>
 
       <div class="preview" id="preview">
         <canvas id="canvas" aria-label="分享圖預覽"></canvas>
@@ -78,6 +81,7 @@
             <label>讚<input id="f-likes" type="text" inputmode="numeric" /></label>
             <label>留言<input id="f-replies" type="text" inputmode="numeric" /></label>
             <label>轉發<input id="f-reposts" type="text" inputmode="numeric" /></label>
+            <label>分享<input id="f-shares" type="text" inputmode="numeric" /></label>
           </div>
           <label>網址<input id="f-url" type="url" autocomplete="off" /></label>
           <div class="triple">
@@ -92,6 +96,14 @@
       <details class="sheet">
         <summary class="sheet-head">留言</summary>
         <div class="sheet-body">
+          <label>展示留言數目
+            <select id="s-comment-limit">
+              <option value="0">不展示留言</option>
+              <option value="1">1 則</option>
+              <option value="2">2 則</option>
+              <option value="3">3 則</option>
+            </select>
+          </label>
           <div id="comments"></div>
           <button id="add-comment" type="button">新增留言</button>
           <p class="hint" id="comment-hint"></p>
@@ -101,12 +113,24 @@
       <details class="sheet">
         <summary class="sheet-head">背景紙張</summary>
         <div class="sheet-body">
+          <p class="hint">十四款內建背景；另可儲存最多八張本機背景</p>
           <div class="swatches" id="swatches"></div>
           <div class="intake-row">
-            <label class="file">自訂底圖<input id="f-bg" type="file" accept="image/*" /></label>
+            <label class="file">上載底圖<input id="f-bg" type="file" accept="image/*" /></label>
+            <button id="save-bg" type="button">存進本機</button>
             <button id="clear-bg" type="button">移除底圖</button>
             <button id="random-bg" type="button">隨機一張</button>
           </div>
+
+          <div id="saved-wrap" hidden>
+            <p class="hint" id="saved-hint"></p>
+            <div class="swatches" id="saved"></div>
+          </div>
+
+          <details class="library">
+            <summary>紙庫 <span id="library-count"></span></summary>
+            <div class="swatches wrap-grid" id="wallpapers"></div>
+          </details>
         </div>
       </details>
 
@@ -122,8 +146,11 @@
           <p class="hint">
             毛玻璃會把底板下方的背景模糊掉，並加上細亮邊與陰影。底板透明度要低於 100% 才看得到效果。
           </p>
-          <label>底板顏色<input id="s-panel" type="color" /></label>
-          <label>文字顏色<input id="s-ink" type="color" /></label>
+          <label>字體
+            <select id="s-font"></select>
+          </label>
+          <label>底板顏色<input id="s-panel" type="color" /><input id="s-panel-hex" class="hex" type="text" spellcheck="false" autocomplete="off" /></label>
+          <label>文字顏色<input id="s-ink" type="color" /><input id="s-ink-hex" class="hex" type="text" spellcheck="false" autocomplete="off" /></label>
           <fieldset class="ratio">
             <legend>比例</legend>
             <label><input type="radio" name="ratio" value="portrait" />直式 4:5</label>
@@ -143,7 +170,14 @@
           <label class="check"><input id="t-stats" type="checkbox" />互動統計</label>
           <label class="check"><input id="t-time" type="checkbox" />時間</label>
           <label class="check"><input id="t-images" type="checkbox" />貼文圖片</label>
-          <label class="check"><input id="t-comments" type="checkbox" />留言</label>
+          <label>圖片數目
+            <select id="s-image-limit">
+              <option value="1">1 張</option>
+              <option value="2">2 張</option>
+              <option value="3">3 張</option>
+              <option value="4">4 張</option>
+            </select>
+          </label>
           <label class="check"><input id="t-url" type="checkbox" />原始網址</label>
         </div>
       </details>

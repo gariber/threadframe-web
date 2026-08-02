@@ -1,9 +1,11 @@
 import "./styles.css";
-import { BACKGROUNDS, findBackground, gradientCss } from "./backgrounds";
+import { BACKGROUNDS, findBackground, WALLPAPERS, type Background } from "./backgrounds";
+import { FONTS } from "./fonts";
 import { PRESETS, type Preset } from "./presets";
 import { parsePastedPost } from "./parse";
 import { renderCard, type Assets } from "./render";
 import {
+  defaultStyle,
   emptyComment,
   emptyPost,
   loadStyle,
@@ -110,6 +112,7 @@ function applyIntake(): void {
   if (parsed.likes !== undefined) post.likes = parsed.likes;
   if (parsed.replies !== undefined) post.replies = parsed.replies;
   if (parsed.reposts !== undefined) post.reposts = parsed.reposts;
+  if (parsed.shares !== undefined) post.shares = parsed.shares;
   if (parsed.url !== undefined) post.url = parsed.url;
 
   syncFields();
@@ -142,6 +145,7 @@ const fields: [string, keyof Post][] = [
   ["f-likes", "likes"],
   ["f-replies", "replies"],
   ["f-reposts", "reposts"],
+  ["f-shares", "shares"],
   ["f-url", "url"],
 ];
 
@@ -204,7 +208,7 @@ function applyPreset(preset: Preset): void {
   assets.bg = null;
   $<HTMLInputElement>("f-bg").value = "";
   syncControls();
-  paintSwatches();
+  paintAllSwatches();
   commit();
 }
 
@@ -219,7 +223,14 @@ function paintPresets(): void {
 
     const thumb = document.createElement("span");
     thumb.className = "preset-thumb";
-    thumb.style.background = gradientCss(findBackground(preset.style.bgId));
+
+    // 底圖同樣用它自己的 paint 畫，與實際輸出一致。
+    const bgThumb = document.createElement("canvas");
+    bgThumb.width = 124;
+    bgThumb.height = 156;
+    const bctx = bgThumb.getContext("2d");
+    if (bctx) findBackground(preset.style.bgId).paint(bctx, bgThumb.width, bgThumb.height);
+    thumb.append(bgThumb);
 
     // 縮圖裡的小方塊代表底板，讓圓角、留白與透明度一眼看得出差異。
     const panel = document.createElement("span");
@@ -337,33 +348,128 @@ addComment.addEventListener("click", () => {
 
 // ── 背景 ─────────────────────────────────────────────────
 const swatches = $("swatches");
+const wallpapers = $("wallpapers");
+const savedList = $("saved");
 
 /** 套用一張內建底圖：底板色與文字色必須一起換，否則深底會做出白底白字。 */
-function applyBackground(bg: (typeof BACKGROUNDS)[number]): void {
+function applyBackground(bg: Background): void {
   style.bgId = bg.id;
   style.customBg = null;
   assets.bg = null;
   style.textColor = bg.ink;
   style.panelColor = bg.panel;
-  $<HTMLInputElement>("s-ink").value = bg.ink;
-  $<HTMLInputElement>("s-panel").value = bg.panel;
   $<HTMLInputElement>("f-bg").value = "";
-  paintSwatches();
+  syncControls();
+  paintAllSwatches();
   commit();
 }
 
-function paintSwatches(): void {
-  swatches.replaceChildren();
-  for (const bg of BACKGROUNDS) {
+/**
+ * 縮圖直接用底圖自己的 paint 畫在小 canvas 上 ——
+ * 選單看到的就是實際輸出，不會有另寫一份 CSS 預覽對不上的問題。
+ */
+function swatchButton(bg: Background, big = false): HTMLButtonElement {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.title = bg.name;
+  btn.setAttribute("aria-label", bg.name);
+  btn.setAttribute("aria-pressed", String(!style.customBg && style.bgId === bg.id));
+  if (big) btn.classList.add("big");
+
+  const thumb = document.createElement("canvas");
+  thumb.width = big ? 132 : 88;
+  thumb.height = big ? 176 : 116;
+  const tctx = thumb.getContext("2d");
+  if (tctx) bg.paint(tctx, thumb.width, thumb.height);
+
+  btn.append(thumb);
+  btn.addEventListener("click", () => applyBackground(bg));
+  return btn;
+}
+
+// ── 本機背景 ─────────────────────────────────────────────
+const BG_KEY = "threadframe.bgs.v1";
+const MAX_SAVED = 8;
+
+function loadSavedBgs(): string[] {
+  try {
+    const raw = JSON.parse(localStorage.getItem(BG_KEY) ?? "[]");
+    return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function persistSavedBgs(list: string[]): boolean {
+  try {
+    localStorage.setItem(BG_KEY, JSON.stringify(list));
+    return true;
+  } catch {
+    // localStorage 大約只有 5MB，存滿了就誠實告訴使用者，不要默默失敗。
+    return false;
+  }
+}
+
+/** 存檔前壓到 900px 寬的 JPEG，否則八張原圖就會把 localStorage 撐爆。 */
+function toStorageDataUrl(img: HTMLImageElement): string {
+  const max = 900;
+  const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(img.naturalWidth * scale));
+  c.height = Math.max(1, Math.round(img.naturalHeight * scale));
+  const cx = c.getContext("2d");
+  if (!cx) return img.src;
+  cx.drawImage(img, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.82);
+}
+
+function useCustomBackground(url: string): void {
+  const img = new Image();
+  img.onload = () => {
+    assets.bg = img;
+    style.customBg = url;
+    paintAllSwatches();
+    draw();
+  };
+  img.src = url;
+}
+
+function paintSaved(): void {
+  const list = loadSavedBgs();
+  $("saved-wrap").hidden = list.length === 0;
+  $("saved-hint").textContent = `本機背景 ${list.length}／${MAX_SAVED}`;
+  savedList.replaceChildren();
+
+  list.forEach((url, index) => {
     const btn = document.createElement("button");
     btn.type = "button";
-    btn.title = bg.name;
-    btn.setAttribute("aria-label", bg.name);
-    btn.setAttribute("aria-pressed", String(!style.customBg && style.bgId === bg.id));
-    btn.style.background = gradientCss(bg);
-    btn.addEventListener("click", () => applyBackground(bg));
-    swatches.append(btn);
-  }
+    btn.className = "saved-swatch";
+    btn.setAttribute("aria-pressed", String(style.customBg === url));
+    btn.style.backgroundImage = `url(${url})`;
+    btn.addEventListener("click", () => useCustomBackground(url));
+
+    const remove = document.createElement("span");
+    remove.className = "saved-x";
+    remove.textContent = "×";
+    remove.title = "刪除這張";
+    remove.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const next = loadSavedBgs();
+      next.splice(index, 1);
+      persistSavedBgs(next);
+      paintSaved();
+    });
+
+    btn.append(remove);
+    savedList.append(btn);
+  });
+}
+
+function paintAllSwatches(): void {
+  swatches.replaceChildren(...BACKGROUNDS.map((bg) => swatchButton(bg)));
+  wallpapers.replaceChildren(...WALLPAPERS.map((bg) => swatchButton(bg, true)));
+  $("library-count").textContent = `${WALLPAPERS.length} 張`;
+  paintSaved();
 }
 
 $<HTMLInputElement>("f-bg").addEventListener("change", async (e) => {
@@ -371,20 +477,41 @@ $<HTMLInputElement>("f-bg").addEventListener("change", async (e) => {
   if (!file) return;
   assets.bg = await fileToImage(file);
   style.customBg = assets.bg.src;
-  paintSwatches();
+  paintAllSwatches();
   draw();
+});
+
+$("save-bg").addEventListener("click", () => {
+  if (!assets.bg) {
+    $("saved-hint").textContent = "先上載一張底圖才能存進本機。";
+    $("saved-wrap").hidden = false;
+    return;
+  }
+  const list = loadSavedBgs();
+  if (list.length >= MAX_SAVED) {
+    $("saved-hint").textContent = `已經存滿 ${MAX_SAVED} 張，先刪掉一張再存。`;
+    return;
+  }
+  const url = toStorageDataUrl(assets.bg);
+  list.push(url);
+  if (!persistSavedBgs(list)) {
+    $("saved-hint").textContent = "瀏覽器儲存空間不足，這張沒有存起來。";
+    return;
+  }
+  style.customBg = url;
+  paintSaved();
 });
 
 $("clear-bg").addEventListener("click", () => {
   assets.bg = null;
   style.customBg = null;
   $<HTMLInputElement>("f-bg").value = "";
-  paintSwatches();
+  paintAllSwatches();
   commit();
 });
 
 $("random-bg").addEventListener("click", () => {
-  const pool = BACKGROUNDS.filter((b) => b.id !== style.bgId);
+  const pool = [...BACKGROUNDS, ...WALLPAPERS].filter((b) => b.id !== style.bgId);
   applyBackground(pool[Math.floor(Math.random() * pool.length)]);
 });
 
@@ -412,16 +539,75 @@ for (const [id, labelId, key, toValue, format] of sliders) {
   el.addEventListener("change", commit);
 }
 
-$<HTMLInputElement>("s-panel").addEventListener("input", (e) => {
-  style.panelColor = (e.target as HTMLInputElement).value;
-  draw();
+const HEX_RE = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+/** 色票與 hex 欄位互相同步；hex 只在格式正確時才套用，打到一半不會亂跳。 */
+function bindColor(pickerId: string, hexId: string, key: "panelColor" | "textColor"): void {
+  const picker = $<HTMLInputElement>(pickerId);
+  const hex = $<HTMLInputElement>(hexId);
+
+  picker.addEventListener("input", () => {
+    style[key] = picker.value;
+    hex.value = picker.value.toUpperCase();
+    draw();
+  });
+  picker.addEventListener("change", commit);
+
+  hex.addEventListener("input", () => {
+    const value = hex.value.trim();
+    if (!HEX_RE.test(value)) return;
+    style[key] = value;
+    picker.value = value.length === 4
+      ? `#${value.slice(1).split("").map((c) => c + c).join("")}`
+      : value;
+    draw();
+  });
+  hex.addEventListener("change", () => {
+    hex.value = style[key].toUpperCase();
+    commit();
+  });
+}
+
+bindColor("s-panel", "s-panel-hex", "panelColor");
+bindColor("s-ink", "s-ink-hex", "textColor");
+
+const fontSelect = $<HTMLSelectElement>("s-font");
+fontSelect.replaceChildren(
+  ...FONTS.map((f) => {
+    const option = document.createElement("option");
+    option.value = f.id;
+    option.textContent = f.name;
+    option.style.fontFamily = f.stack;
+    return option;
+  }),
+);
+fontSelect.addEventListener("change", () => {
+  style.fontId = fontSelect.value;
+  commit();
 });
-$<HTMLInputElement>("s-ink").addEventListener("input", (e) => {
-  style.textColor = (e.target as HTMLInputElement).value;
-  draw();
+
+const counters: [string, "imageLimit" | "commentLimit"][] = [
+  ["s-image-limit", "imageLimit"],
+  ["s-comment-limit", "commentLimit"],
+];
+
+for (const [id, key] of counters) {
+  const el = $<HTMLSelectElement>(id);
+  el.addEventListener("change", () => {
+    style[key] = Number(el.value);
+    commit();
+  });
+}
+
+$("reset").addEventListener("click", () => {
+  // 只重設排版，不動已經輸入的貼文內容 —— 那些重打一次成本太高。
+  style = defaultStyle();
+  assets.bg = null;
+  $<HTMLInputElement>("f-bg").value = "";
+  syncControls();
+  paintAllSwatches();
+  commit();
 });
-$("s-panel").addEventListener("change", commit);
-$("s-ink").addEventListener("change", commit);
 
 for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {
   radio.addEventListener("change", () => {
@@ -437,7 +623,6 @@ const toggles: [string, keyof Style][] = [
   ["t-stats", "showStats"],
   ["t-time", "showTime"],
   ["t-images", "showImages"],
-  ["t-comments", "showComments"],
   ["t-url", "showUrl"],
   ["t-glass", "glass"],
   ["t-mask", "maskIdentity"],
@@ -464,7 +649,12 @@ function syncControls(): void {
   $<HTMLInputElement>("s-blur").value = String(style.blur);
   $("v-blur").textContent = `${style.blur}px`;
   $<HTMLInputElement>("s-panel").value = style.panelColor;
+  $<HTMLInputElement>("s-panel-hex").value = style.panelColor.toUpperCase();
   $<HTMLInputElement>("s-ink").value = style.textColor;
+  $<HTMLInputElement>("s-ink-hex").value = style.textColor.toUpperCase();
+  $<HTMLSelectElement>("s-font").value = style.fontId;
+  $<HTMLSelectElement>("s-image-limit").value = String(style.imageLimit);
+  $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {
     radio.checked = radio.value === style.ratio;
   }
@@ -520,7 +710,7 @@ function readShareTarget(): void {
   history.replaceState(null, "", location.pathname);
 }
 
-paintSwatches();
+paintAllSwatches();
 paintPresets();
 paintComments();
 syncControls();

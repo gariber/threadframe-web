@@ -310,6 +310,13 @@ fieldset.ratio label {
   overflow: hidden;
 }
 
+.preset-thumb canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
 .preset-panel {
   position: absolute;
 }
@@ -373,15 +380,117 @@ fieldset.ratio label {
 
 .swatches button {
   flex: 0 0 auto;
+  padding: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.swatches button canvas {
+  display: block;
   width: 44px;
   height: 58px;
-  border-radius: 8px;
-  padding: 0;
+}
+
+.swatches button.big canvas {
+  width: 66px;
+  height: 88px;
 }
 
 .swatches button[aria-pressed="true"] {
   outline: 2px solid var(--ink);
   outline-offset: 1px;
+}
+
+.wrap-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+  gap: 0.5rem;
+  overflow: visible;
+  margin-top: 0.6rem;
+}
+
+.wrap-grid button,
+.wrap-grid button.big canvas {
+  width: 100%;
+}
+
+.wrap-grid button.big canvas {
+  height: auto;
+  aspect-ratio: 3 / 4;
+}
+
+.library {
+  margin-top: 0.8rem;
+  border-top: 1px solid var(--line);
+  padding-top: 0.7rem;
+}
+
+.library summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.library summary span {
+  color: var(--ink-soft);
+  font-weight: 400;
+}
+
+.saved-swatch {
+  position: relative;
+  width: 44px;
+  height: 58px;
+  background-size: cover;
+  background-position: center;
+}
+
+.saved-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.topbar h1 {
+  margin: 0;
+}
+
+.topbar button {
+  padding: 0.4rem 0.8rem;
+  font-size: 0.85rem;
+}
+
+.hex {
+  flex: 0 1 7rem;
+  text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+
+.sheet-body select {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ground);
+  color: var(--ink);
 }
 
 .err {

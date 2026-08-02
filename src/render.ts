@@ -1,11 +1,15 @@
-import { findBackground, makeGradient } from "./backgrounds";
+import { findBackground } from "./backgrounds";
+import { DEFAULT_FONT, findFont } from "./fonts";
 import { MAX_COMMENTS, type Post, type Style } from "./state";
 
 /** 輸出寬度固定，與裝置螢幕寬度無關；預覽只是把同一張圖縮小顯示。 */
 export const EXPORT_W = 1080;
 
-const FONT_STACK =
-  '"PingFang TC", "Noto Sans TC", "Hiragino Sans TC", "Microsoft JhengHei", system-ui, -apple-system, sans-serif';
+/**
+ * 目前這次算繪使用的字型堆疊。renderCard 開頭設定一次，
+ * 讓底下所有 font() 呼叫不必各自帶著 style 跑。
+ */
+let activeStack = DEFAULT_FONT.stack;
 
 export type Assets = {
   avatar: HTMLImageElement | null;
@@ -20,7 +24,7 @@ const CJK_RE = /[ᄀ-ᇿ⺀-鿿　-〿가-힯豈-﫿＀-￯]/;
 const NO_LINE_START = "、。，．：；！？」』）》〉】〕｝”’,.:;!?)]}%";
 
 function font(size: number, weight = 400): string {
-  return `${weight} ${size}px ${FONT_STACK}`;
+  return `${weight} ${size}px ${activeStack}`;
 }
 
 /**
@@ -154,8 +158,9 @@ function paintBackground(
   if (assets.bg) {
     drawCover(ctx, assets.bg, 0, 0, w, h);
   } else {
-    ctx.fillStyle = makeGradient(ctx, findBackground(style.bgId), w, h);
-    ctx.fillRect(0, 0, w, h);
+    ctx.save();
+    findBackground(style.bgId).paint(ctx, w, h);
+    ctx.restore();
   }
 }
 
@@ -204,6 +209,16 @@ function bubblePath(ctx: CanvasRenderingContext2D, x: number, y: number, s: numb
   ctx.moveTo(x + s * 0.3, y + s * 0.78);
   ctx.lineTo(x + s * 0.22, y + s * 0.97);
   ctx.lineTo(x + s * 0.46, y + s * 0.8);
+  ctx.closePath();
+}
+
+/** 分享：紙飛機。 */
+function sendPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  ctx.beginPath();
+  ctx.moveTo(x + s * 0.08, y + s * 0.5);
+  ctx.lineTo(x + s * 0.94, y + s * 0.12);
+  ctx.lineTo(x + s * 0.56, y + s * 0.92);
+  ctx.lineTo(x + s * 0.46, y + s * 0.58);
   ctx.closePath();
 }
 
@@ -340,7 +355,9 @@ function layout(
   }
 
   // ── 貼文圖片（完整顯示，不裁切） ───────────────────────
-  const images = style.showImages ? assets.images.slice(0, 4) : [];
+  const images = style.showImages
+    ? assets.images.slice(0, Math.max(0, Math.min(4, style.imageLimit)))
+    : [];
   if (images.length > 0) {
     const cellGap = Math.round(size * 0.35);
     let height: number;
@@ -395,6 +412,7 @@ function layout(
     if (post.likes.trim()) stats.push([heartPath, post.likes.trim()]);
     if (post.replies.trim()) stats.push([bubblePath, post.replies.trim()]);
     if (post.reposts.trim()) stats.push([repeatPath, post.reposts.trim()]);
+    if (post.shares.trim()) stats.push([sendPath, post.shares.trim()]);
   }
   if (stats.length > 0) {
     const iconSize = Math.round(size * 0.85);
@@ -427,12 +445,14 @@ function layout(
   }
 
   // ── 留言 ───────────────────────────────────────────────
-  const comments = style.showComments
-    ? post.comments
-        .map((comment, index) => ({ comment, index }))
-        .filter(({ comment }) => comment.text.trim() || comment.name.trim())
-        .slice(0, MAX_COMMENTS)
-    : [];
+  const commentLimit = Math.max(0, Math.min(MAX_COMMENTS, style.commentLimit));
+  const comments =
+    commentLimit > 0
+      ? post.comments
+          .map((comment, index) => ({ comment, index }))
+          .filter(({ comment }) => comment.text.trim() || comment.name.trim())
+          .slice(0, commentLimit)
+      : [];
 
   if (comments.length > 0) {
     const avatarSize = Math.round(size * 1.15);
@@ -541,6 +561,8 @@ export function renderCard(
 ): void {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
+
+  activeStack = findFont(style.fontId).stack;
 
   const pad = style.pad;
   const panelPad = Math.round(style.textSize * 1.4);

@@ -36,6 +36,7 @@ export type ParsedPaste = {
   likes?: string;
   replies?: string;
   reposts?: string;
+  shares?: string;
   url?: string;
 };
 
@@ -104,6 +105,7 @@ export function parsePastedPost(raw: string): ParsedPaste {
   if (counts[0]) out.likes = counts[0];
   if (counts[1]) out.replies = counts[1];
   if (counts[2]) out.reposts = counts[2];
+  if (counts[3]) out.shares = counts[3];
 
   dropEdgeBlanks();
   // 連續空行壓成一個，避免貼上時夾帶的多餘空白撐開卡片。
