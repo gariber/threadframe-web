@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>ThreadFrame — 把 Threads 貼文變成分享圖</title>
+    <meta
+      name="description"
+      content="把 Threads 貼文排版成可下載的分享圖。全部在你的瀏覽器裡完成，不上傳任何資料。"
+    />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <meta name="theme-color" content="#f3efe8" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#17120f" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="ThreadFrame" />
+    <link rel="apple-touch-icon" href="./icons/icon180.png" />
+    <link rel="icon" href="./icons/icon128.png" />
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>ThreadFrame</h1>
+
+      <div class="preview" id="preview">
+        <canvas id="canvas" aria-label="分享圖預覽"></canvas>
+        <div class="msg" id="empty">
+          <p>把一則 Threads 貼文貼進來，就會出現卡片。</p>
+        </div>
+      </div>
+
+      <div class="intake">
+        <textarea
+          id="intake"
+          rows="3"
+          placeholder="貼上整則貼文，或只貼網址&#10;（在 Threads 長按貼文 → 複製連結／選取文字複製）"
+        ></textarea>
+        <div class="intake-row">
+          <button id="paste">貼上</button>
+          <button id="apply" class="primary">帶入卡片</button>
+        </div>
+        <p class="hint" id="intake-hint">
+          Threads 不開放網頁跨網域讀取貼文，所以內容由你貼上、在本機排版。貼上後每個欄位都還能改。
+        </p>
+      </div>
+
+      <button id="export" class="primary export-btn">存成圖片</button>
+
+      <div class="result" id="result" hidden>
+        <img id="result-img" alt="產生的分享圖" />
+        <p>長按上面的圖片 → 加入照片，即可存檔。</p>
+        <div class="intake-row">
+          <button id="download">下載</button>
+          <button id="share" hidden>分享</button>
+        </div>
+      </div>
+
+      <details class="sheet" open>
+        <summary class="sheet-head">貼文內容</summary>
+        <div class="sheet-body">
+          <label>名稱<input id="f-name" type="text" autocomplete="off" /></label>
+          <label>帳號<input id="f-handle" type="text" autocomplete="off" placeholder="不含 @" /></label>
+          <label class="stack">
+            內文
+            <textarea id="f-text" rows="5"></textarea>
+          </label>
+          <label>時間<input id="f-time" type="text" autocomplete="off" placeholder="2 小時" /></label>
+          <div class="triple">
+            <label>讚<input id="f-likes" type="text" inputmode="numeric" /></label>
+            <label>留言<input id="f-replies" type="text" inputmode="numeric" /></label>
+            <label>轉發<input id="f-reposts" type="text" inputmode="numeric" /></label>
+          </div>
+          <label>網址<input id="f-url" type="url" autocomplete="off" /></label>
+          <div class="triple">
+            <label class="file">頭像<input id="f-avatar" type="file" accept="image/*" /></label>
+            <label class="file">貼文圖片<input id="f-images" type="file" accept="image/*" multiple /></label>
+            <button id="clear-images" type="button">清除圖片</button>
+          </div>
+          <p class="hint" id="image-count"></p>
+        </div>
+      </details>
+
+      <details class="sheet">
+        <summary class="sheet-head">背景紙張</summary>
+        <div class="sheet-body">
+          <div class="swatches" id="swatches"></div>
+          <div class="intake-row">
+            <label class="file">自訂底圖<input id="f-bg" type="file" accept="image/*" /></label>
+            <button id="clear-bg" type="button">移除底圖</button>
+            <button id="random-bg" type="button">隨機一張</button>
+          </div>
+        </div>
+      </details>
+
+      <details class="sheet">
+        <summary class="sheet-head">畫布與排版</summary>
+        <div class="sheet-body">
+          <label>留白<input id="s-pad" type="range" min="0" max="160" step="4" /><span class="hint-inline" id="v-pad"></span></label>
+          <label>文字尺寸<input id="s-size" type="range" min="20" max="72" step="1" /><span class="hint-inline" id="v-size"></span></label>
+          <label>圓角<input id="s-radius" type="range" min="0" max="72" step="2" /><span class="hint-inline" id="v-radius"></span></label>
+          <label>底板透明度<input id="s-alpha" type="range" min="0" max="100" step="5" /><span class="hint-inline" id="v-alpha"></span></label>
+          <label>底板顏色<input id="s-panel" type="color" /></label>
+          <label>文字顏色<input id="s-ink" type="color" /></label>
+          <fieldset class="ratio">
+            <legend>比例</legend>
+            <label><input type="radio" name="ratio" value="portrait" />直式 4:5</label>
+            <label><input type="radio" name="ratio" value="square" />方形</label>
+            <label><input type="radio" name="ratio" value="auto" />自動高度</label>
+          </fieldset>
+          <p class="hint">
+            下載尺寸固定 1080px 寬，不隨這台裝置的畫面寬度變動。預覽只是縮小顯示，不影響輸出。
+          </p>
+        </div>
+      </details>
+
+      <details class="sheet">
+        <summary class="sheet-head">顯示項目</summary>
+        <div class="sheet-body">
+          <label class="check"><input id="t-avatar" type="checkbox" />頭像</label>
+          <label class="check"><input id="t-stats" type="checkbox" />互動統計</label>
+          <label class="check"><input id="t-time" type="checkbox" />時間</label>
+          <label class="check"><input id="t-images" type="checkbox" />貼文圖片</label>
+          <label class="check"><input id="t-url" type="checkbox" />原始網址</label>
+        </div>
+      </details>
+
+      <details class="sheet">
+        <summary class="sheet-head">隱私</summary>
+        <div class="sheet-body">
+          <label class="check"><input id="t-mask" type="checkbox" />遮蔽作者身分</label>
+          <p class="hint">
+            名稱、帳號、頭像會一起蓋掉。內文若含可識別線索不在處理範圍。
+          </p>
+          <p class="hint">
+            這個網頁不會把貼文、圖片或底圖送到任何伺服器 —— 全部只在這台裝置的瀏覽器裡處理。
+            只有排版偏好會存在本機，貼文內容重新整理後就消失。
+          </p>
+        </div>
+      </details>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

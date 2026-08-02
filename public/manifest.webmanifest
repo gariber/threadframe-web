@@ -1,0 +1,26 @@
+{
+  "name": "ThreadFrame — 把 Threads 貼文變成分享圖",
+  "short_name": "ThreadFrame",
+  "description": "把 Threads 貼文排版成分享圖。全部在本機處理，不蒐集任何資料。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3efe8",
+  "theme_color": "#f3efe8",
+  "lang": "zh-Hant",
+  "share_target": {
+    "action": "./",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "icons": [
+    { "src": "./icons/icon128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "./icons/icon180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "./icons/icon512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
