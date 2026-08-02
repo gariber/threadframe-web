@@ -117,6 +117,11 @@
           <label>文字尺寸<input id="s-size" type="range" min="20" max="72" step="1" /><span class="hint-inline" id="v-size"></span></label>
           <label>圓角<input id="s-radius" type="range" min="0" max="72" step="2" /><span class="hint-inline" id="v-radius"></span></label>
           <label>底板透明度<input id="s-alpha" type="range" min="0" max="100" step="5" /><span class="hint-inline" id="v-alpha"></span></label>
+          <label class="check"><input id="t-glass" type="checkbox" />毛玻璃</label>
+          <label>模糊<input id="s-blur" type="range" min="8" max="96" step="4" /><span class="hint-inline" id="v-blur"></span></label>
+          <p class="hint">
+            毛玻璃會把底板下方的背景模糊掉，並加上細亮邊與陰影。底板透明度要低於 100% 才看得到效果。
+          </p>
           <label>底板顏色<input id="s-panel" type="color" /></label>
           <label>文字顏色<input id="s-ink" type="color" /></label>
           <fieldset class="ratio">

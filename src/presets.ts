@@ -8,7 +8,16 @@ import type { Style } from "./state";
  */
 export type PresetStyle = Pick<
   Style,
-  "bgId" | "pad" | "textSize" | "radius" | "panelAlpha" | "panelColor" | "textColor" | "ratio"
+  | "bgId"
+  | "pad"
+  | "textSize"
+  | "radius"
+  | "panelAlpha"
+  | "panelColor"
+  | "textColor"
+  | "ratio"
+  | "glass"
+  | "blur"
 >;
 
 export type Preset = {
@@ -30,6 +39,8 @@ export const PRESETS: Preset[] = [
       panelColor: "#ffffff",
       textColor: "#16130f",
       ratio: "auto",
+      glass: false,
+      blur: 40,
     },
   },
   {
@@ -44,6 +55,8 @@ export const PRESETS: Preset[] = [
       panelColor: "#1d1916",
       textColor: "#f2ece6",
       ratio: "auto",
+      glass: false,
+      blur: 40,
     },
   },
   {
@@ -58,6 +71,8 @@ export const PRESETS: Preset[] = [
       panelColor: "#ffffff",
       textColor: "#2b2521",
       ratio: "portrait",
+      glass: false,
+      blur: 40,
     },
   },
   {
@@ -72,6 +87,8 @@ export const PRESETS: Preset[] = [
       panelColor: "#fffdf6",
       textColor: "#3b2f24",
       ratio: "portrait",
+      glass: false,
+      blur: 40,
     },
   },
   {
@@ -86,6 +103,8 @@ export const PRESETS: Preset[] = [
       panelColor: "#3a1d1a",
       textColor: "#fdeee4",
       ratio: "square",
+      glass: false,
+      blur: 40,
     },
   },
   {
@@ -97,10 +116,44 @@ export const PRESETS: Preset[] = [
       textSize: 34,
       radius: 40,
       // 對齊滑桿的 5% 刻度，否則控制項會吸附到 70% 而與實際值不一致。
-      panelAlpha: 0.7,
+      panelAlpha: 0.45,
       panelColor: "#ffffff",
       textColor: "#2b2340",
       ratio: "portrait",
+      glass: true,
+      blur: 48,
+    },
+  },
+  {
+    id: "glass-sunset",
+    name: "夕燒玻璃",
+    style: {
+      bgId: "sunset",
+      pad: 72,
+      textSize: 34,
+      radius: 36,
+      panelAlpha: 0.4,
+      panelColor: "#1a0f0d",
+      textColor: "#fdf1ec",
+      ratio: "portrait",
+      glass: true,
+      blur: 56,
+    },
+  },
+  {
+    id: "glass-aurora",
+    name: "極光玻璃",
+    style: {
+      bgId: "aurora",
+      pad: 72,
+      textSize: 34,
+      radius: 36,
+      panelAlpha: 0.4,
+      panelColor: "#0b171d",
+      textColor: "#e9f7f4",
+      ratio: "portrait",
+      glass: true,
+      blur: 56,
     },
   },
 ];

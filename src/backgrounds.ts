@@ -29,6 +29,32 @@ export const BACKGROUNDS: Background[] = [
   { id: "dusk", name: "暮色", angle: 155, panel: "#2a2438", ink: "#f6efe9", stops: [[0, "#6b5b7b"], [1, "#3a3350"]] },
   { id: "ember", name: "餘燼", angle: 150, panel: "#3a1d1a", ink: "#fdeee4", stops: [[0, "#b3583c"], [1, "#5e2a26"]] },
   { id: "ocean", name: "深海", angle: 165, panel: "#12222f", ink: "#e9f2fa", stops: [[0, "#2b5c7e"], [1, "#14283d"]] },
+  // 深→亮的高對比漸層，毛玻璃底板疊在上面時色彩穿透最明顯。
+  {
+    id: "sunset",
+    name: "夕燒",
+    angle: 175,
+    panel: "#2b1512",
+    ink: "#fdeee8",
+    stops: [
+      [0, "#1a0d0c"],
+      [0.45, "#8f2f1f"],
+      [0.75, "#e8623c"],
+      [1, "#f98f86"],
+    ],
+  },
+  {
+    id: "aurora",
+    name: "極光",
+    angle: 150,
+    panel: "#101d24",
+    ink: "#e8f6f4",
+    stops: [
+      [0, "#0d1a22"],
+      [0.5, "#1f5f66"],
+      [1, "#6fd6b4"],
+    ],
+  },
   { id: "ink", name: "墨", angle: 160, panel: DARK, ink: "#f2ece6", stops: [[0, "#2a2320"], [1, "#141010"]] },
   { id: "carbon", name: "石墨", angle: 180, panel: "#23282b", ink: "#eceff1", stops: [[0, "#3d4348"], [1, "#1b1f22"]] },
 ];

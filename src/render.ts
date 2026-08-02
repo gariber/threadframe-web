@@ -144,6 +144,52 @@ function drawCover(
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
+function paintBackground(
+  ctx: CanvasRenderingContext2D,
+  style: Style,
+  assets: Assets,
+  w: number,
+  h: number,
+): void {
+  if (assets.bg) {
+    drawCover(ctx, assets.bg, 0, 0, w, h);
+  } else {
+    ctx.fillStyle = makeGradient(ctx, findBackground(style.bgId), w, h);
+    ctx.fillRect(0, 0, w, h);
+  }
+}
+
+/**
+ * 毛玻璃用的模糊。先縮小再放大 —— 縮圖時瀏覽器會做像素平均，本身就是一次模糊，
+ * 在所有瀏覽器都有效；ctx.filter 只在支援的環境（iOS 17 以後）再疊一層讓邊緣更柔。
+ */
+function frost(source: HTMLCanvasElement, w: number, h: number, radius: number): HTMLCanvasElement {
+  const step = Math.max(2, Math.round(radius / 4));
+  const sw = Math.max(1, Math.round(w / step));
+  const sh = Math.max(1, Math.round(h / step));
+
+  const small = document.createElement("canvas");
+  small.width = sw;
+  small.height = sh;
+  const sctx = small.getContext("2d");
+
+  const out = document.createElement("canvas");
+  out.width = w;
+  out.height = h;
+  const octx = out.getContext("2d");
+  if (!sctx || !octx) return source;
+
+  sctx.imageSmoothingEnabled = true;
+  sctx.imageSmoothingQuality = "high";
+  sctx.drawImage(source, 0, 0, sw, sh);
+
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+  if ("filter" in octx) octx.filter = `blur(${Math.max(1, Math.round(radius / 5))}px)`;
+  octx.drawImage(small, 0, 0, w, h);
+  return out;
+}
+
 function heartPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
   ctx.moveTo(x + s / 2, y + s * 0.92);
@@ -513,20 +559,56 @@ export function renderCard(
   canvas.height = H;
 
   // 背景
-  if (assets.bg) {
-    drawCover(ctx, assets.bg, 0, 0, EXPORT_W, H);
-  } else {
-    ctx.fillStyle = makeGradient(ctx, findBackground(style.bgId), EXPORT_W, H);
-    ctx.fillRect(0, 0, EXPORT_W, H);
-  }
+  paintBackground(ctx, style, assets, EXPORT_W, H);
 
   // 底板（比例大於內容時垂直置中）
   const panelY = Math.round((H - panelH) / 2);
+  const panelX = pad;
+  const panelW = EXPORT_W - pad * 2;
+  const panel = (c: CanvasRenderingContext2D) =>
+    roundRect(c, panelX, panelY, panelW, panelH, style.radius);
+
+  if (style.glass) {
+    // 先用實色填一次取得外緣陰影；這塊實色隨後會被模糊背景與色調整片蓋掉。
+    ctx.save();
+    ctx.shadowColor = "rgba(0, 0, 0, 0.34)";
+    ctx.shadowBlur = Math.round(style.radius * 1.4 + 26);
+    ctx.shadowOffsetY = 14;
+    ctx.fillStyle = "#000";
+    panel(ctx);
+    ctx.fill();
+    ctx.restore();
+
+    // 模糊來源另外畫一份乾淨的背景，避免把剛才的陰影一起模糊進去。
+    const source = document.createElement("canvas");
+    source.width = EXPORT_W;
+    source.height = H;
+    const sctx = source.getContext("2d");
+    if (sctx) {
+      paintBackground(sctx, style, assets, EXPORT_W, H);
+      ctx.save();
+      panel(ctx);
+      ctx.clip();
+      ctx.drawImage(frost(source, EXPORT_W, H, style.blur), 0, 0);
+      ctx.restore();
+    }
+  }
+
   if (style.panelAlpha > 0) {
     ctx.save();
     ctx.fillStyle = hexToRgba(style.panelColor, style.panelAlpha);
-    roundRect(ctx, pad, panelY, EXPORT_W - pad * 2, panelH, style.radius);
+    panel(ctx);
     ctx.fill();
+    ctx.restore();
+  }
+
+  if (style.glass) {
+    // 玻璃邊緣的細亮邊，讓底板在背景上有實體感。
+    ctx.save();
+    ctx.strokeStyle = softInk(style.textColor, 0.22);
+    ctx.lineWidth = 2;
+    panel(ctx);
+    ctx.stroke();
     ctx.restore();
   }
 

@@ -228,6 +228,11 @@ function paintPresets(): void {
     panel.style.opacity = String(preset.style.panelAlpha);
     panel.style.borderRadius = `${Math.max(1, preset.style.radius / 7)}px`;
     panel.style.inset = `${Math.round(preset.style.pad / 14)}px`;
+    if (preset.style.glass) {
+      // 縮圖用 CSS 的 backdrop-filter 呈現毛玻璃，與 canvas 的做法不同但視覺一致。
+      panel.style.backdropFilter = `blur(${Math.max(2, Math.round(preset.style.blur / 12))}px)`;
+      panel.style.border = "1px solid rgba(255, 255, 255, 0.35)";
+    }
     thumb.append(panel);
 
     const name = document.createElement("span");
@@ -389,6 +394,7 @@ const sliders: [string, string, keyof Style, (v: number) => number, (v: number) 
   ["s-size", "v-size", "textSize", (v) => v, (v) => `${v}px`],
   ["s-radius", "v-radius", "radius", (v) => v, (v) => `${v}px`],
   ["s-alpha", "v-alpha", "panelAlpha", (v) => v / 100, (v) => `${v}%`],
+  ["s-blur", "v-blur", "blur", (v) => v, (v) => `${v}px`],
 ];
 
 for (const [id, labelId, key, toValue, format] of sliders) {
@@ -433,6 +439,7 @@ const toggles: [string, keyof Style][] = [
   ["t-images", "showImages"],
   ["t-comments", "showComments"],
   ["t-url", "showUrl"],
+  ["t-glass", "glass"],
   ["t-mask", "maskIdentity"],
 ];
 
@@ -454,6 +461,8 @@ function syncControls(): void {
   $("v-radius").textContent = `${style.radius}px`;
   $<HTMLInputElement>("s-alpha").value = String(Math.round(style.panelAlpha * 100));
   $("v-alpha").textContent = `${Math.round(style.panelAlpha * 100)}%`;
+  $<HTMLInputElement>("s-blur").value = String(style.blur);
+  $("v-blur").textContent = `${style.blur}px`;
   $<HTMLInputElement>("s-panel").value = style.panelColor;
   $<HTMLInputElement>("s-ink").value = style.textColor;
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {

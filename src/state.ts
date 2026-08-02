@@ -40,6 +40,10 @@ export type Style = {
   textColor: string;
   panelColor: string;
   panelAlpha: number;
+  /** 毛玻璃：底板下方的背景會被模糊，而不是清晰穿透。 */
+  glass: boolean;
+  /** 毛玻璃的模糊強度（輸出像素）。 */
+  blur: number;
   radius: number;
   ratio: Ratio;
   showAvatar: boolean;
@@ -75,6 +79,8 @@ export const defaultStyle = (): Style => ({
   textColor: DEFAULT_BACKGROUND.ink,
   panelColor: "#ffffff",
   panelAlpha: 1,
+  glass: false,
+  blur: 40,
   radius: 28,
   ratio: "auto",
   showAvatar: true,
