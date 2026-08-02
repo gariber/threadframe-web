@@ -323,9 +323,8 @@ function layout(
         c.fillText(name, x, ty);
         ty += nameSize + 6;
 
-        const meta = [handle ? `@${handle}` : "", style.showTime ? post.time.trim() : ""]
-          .filter(Boolean)
-          .join(" · ");
+        // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
+        const meta = handle ? `@${handle}` : "";
         if (meta) {
           c.fillStyle = softInk(ink, 0.55);
           c.font = font(metaSize, 400);
@@ -406,6 +405,22 @@ function layout(
     });
   }
 
+  // ── 發文時間 ───────────────────────────────────────────
+  // 獨立一行放在內容之後、統計之前，與統計之間隔一條細線。
+  const timeText = style.showTime ? post.time.trim() : "";
+  if (timeText) {
+    const timeSize = Math.round(size * 0.8);
+    blocks.push({
+      height: timeSize + 4,
+      draw: (c, top) => {
+        c.fillStyle = softInk(ink, 0.45);
+        c.font = font(timeSize, 400);
+        c.textBaseline = "top";
+        c.fillText(timeText, 0, top);
+      },
+    });
+  }
+
   // ── 互動統計 ───────────────────────────────────────────
   const stats: [(c: CanvasRenderingContext2D, x: number, y: number, s: number) => void, string][] = [];
   if (style.showStats) {
@@ -416,29 +431,55 @@ function layout(
   }
   if (stats.length > 0) {
     const iconSize = Math.round(size * 0.85);
+    const valueSize = Math.round(size * 0.8);
+    const ruleGap = Math.round(size * 0.5);
+    const iconGap = Math.round(size * 0.28);
+    const dotGap = Math.round(size * 0.42);
+
     blocks.push({
-      height: iconSize,
+      height: ruleGap + iconSize,
       draw: (c, top) => {
-        c.font = font(Math.round(size * 0.8), 400);
-        c.textBaseline = "middle";
+        // 統計上方的細線，與時間隔開。
+        c.strokeStyle = softInk(ink, 0.13);
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(0, top + 1);
+        c.lineTo(contentW, top + 1);
+        c.stroke();
+
+        const rowTop = top + ruleGap;
+        const cy = rowTop + iconSize / 2;
         let x = 0;
-        for (const [icon, value] of stats) {
-          const cy = top + iconSize / 2;
+
+        stats.forEach(([icon, value], index) => {
+          if (index > 0) {
+            // 項目之間的分隔點
+            c.textBaseline = "middle";
+            c.fillStyle = softInk(ink, 0.35);
+            c.font = font(valueSize, 400);
+            c.fillText("·", x, cy);
+            x += c.measureText("·").width + dotGap;
+          }
+
           c.save();
           c.strokeStyle = softInk(ink, 0.6);
           c.fillStyle = softInk(ink, 0.6);
           c.lineWidth = Math.max(2, size * 0.06);
           c.lineJoin = "round";
           c.lineCap = "round";
-          icon(c, x, top, iconSize);
+          icon(c, x, rowTop, iconSize);
           if (icon === repeatPath) c.stroke();
           else c.fill();
           c.restore();
-          x += iconSize + Math.round(size * 0.28);
+          x += iconSize + iconGap;
+
+          c.textBaseline = "middle";
           c.fillStyle = softInk(ink, 0.6);
+          c.font = font(valueSize, 400);
           c.fillText(value, x, cy);
-          x += c.measureText(value).width + Math.round(size * 0.9);
-        }
+          x += c.measureText(value).width + dotGap;
+        });
+
         c.textBaseline = "top";
       },
     });

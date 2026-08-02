@@ -47,9 +47,18 @@ export async function fetchThreadsPost(postUrl: string): Promise<FetchedPost> {
   return body as FetchedPost;
 }
 
-/** 統計數字照 Threads 的習慣縮寫：1.2萬 / 3.4K 之類交給呼叫端決定，這裡只加千分位。 */
+/**
+ * 統計數字縮寫成 1.9K / 321.7K / 1.2M，與分享圖上的慣例一致。
+ * 只用在自動帶入的數字；使用者自己打的值不會被改寫。
+ */
 export function formatCount(value: number | null): string {
-  return value === null || Number.isNaN(value) ? "" : value.toLocaleString("en-US");
+  if (value === null || Number.isNaN(value)) return "";
+  const trim = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1));
+  // 先算成 K，四捨五入後若已經滿一千才進位到 M，避免 999999 變成 "1000K"。
+  const k = Math.round(value / 100) / 10;
+  if (k >= 1000) return `${trim(Math.round(value / 100_000) / 10)}M`;
+  if (value >= 1_000) return `${trim(k)}K`;
+  return String(value);
 }
 
 /** 絕對時間，與分享圖常見的寫法一致。 */
