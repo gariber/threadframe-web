@@ -25,6 +25,8 @@ import {
   type Style,
 } from "./state";
 
+declare const __BUILD_ID__: string;
+
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
@@ -858,6 +860,8 @@ function readShareTarget(): void {
   applyIntake();
   history.replaceState(null, "", location.pathname);
 }
+
+$("build").textContent = `建置 ${__BUILD_ID__}`;
 
 if (adoptWorkerFromQuery()) history.replaceState(null, "", location.pathname);
 workerInput.value = getWorkerUrl();

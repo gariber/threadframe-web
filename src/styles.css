@@ -512,3 +512,10 @@ fieldset.ratio label {
   line-height: 1.5;
   color: var(--ink-faint);
 }
+
+.build {
+  text-align: center;
+  margin-top: 1.4rem;
+  font-size: 0.72rem;
+  opacity: 0.6;
+}
