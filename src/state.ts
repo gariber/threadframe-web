@@ -83,7 +83,8 @@ export const defaultStyle = (): Style => ({
   pad: 64,
   textSize: 34,
   textColor: DEFAULT_BACKGROUND.ink,
-  panelColor: "#ffffff",
+  // 底板色與文字色必須取自同一張底圖，分開寫死會做出白底白字。
+  panelColor: DEFAULT_BACKGROUND.panel,
   panelAlpha: 1,
   glass: false,
   blur: 40,
