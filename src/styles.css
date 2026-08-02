@@ -519,3 +519,31 @@ fieldset.ratio label {
   font-size: 0.72rem;
   opacity: 0.6;
 }
+
+.update-bar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.7rem;
+  padding: 0.6rem 1rem;
+  background: var(--accent);
+  color: var(--ground);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* display: flex 的優先權高過 [hidden] 的 display: none，必須明確蓋回去。 */
+.update-bar[hidden] {
+  display: none;
+}
+
+.update-bar button {
+  padding: 0.35rem 0.8rem;
+  font-size: 0.85rem;
+  background: var(--ground);
+  color: var(--ink);
+  border-color: var(--ground);
+}

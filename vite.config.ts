@@ -10,6 +10,20 @@ export default defineConfig({
   define: {
     __BUILD_ID__: JSON.stringify(`${BUILD_ID} UTC`),
   },
+  plugins: [
+    {
+      // 一併輸出 version.json，讓已載入的頁面能主動察覺自己是舊版。
+      // 資產檔名有雜湊、可以永久快取，真正會過期的只有 index.html。
+      name: "emit-version",
+      generateBundle() {
+        this.emitFile({
+          type: "asset",
+          fileName: "version.json",
+          source: JSON.stringify({ build: `${BUILD_ID} UTC` }),
+        });
+      },
+    },
+  ],
   build: {
     target: "es2020",
     assetsInlineLimit: 0,

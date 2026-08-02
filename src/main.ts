@@ -863,6 +863,30 @@ function readShareTarget(): void {
 
 $("build").textContent = `建置 ${__BUILD_ID__}`;
 
+/**
+ * 手機瀏覽器會把 index.html 留在快取裡，導致明明已經部署新版、畫面卻還是舊的。
+ * 這裡主動比對伺服器上的 version.json，不一致就讓使用者一鍵換到新版。
+ */
+async function checkForUpdate(): Promise<void> {
+  try {
+    const res = await fetch(`./version.json?t=${Date.now()}`, { cache: "no-store" });
+    if (!res.ok) return;
+    const { build } = (await res.json()) as { build?: string };
+    if (!build || build === __BUILD_ID__) return;
+
+    const bar = $("update-bar");
+    bar.hidden = false;
+    $("update-now").addEventListener("click", () => {
+      // 換一個網址才拿得到新的 index.html —— 單純 reload 仍會吃到快取。
+      location.replace(`${location.pathname}?u=${Date.now()}`);
+    });
+  } catch {
+    // 離線或擋掉請求都不影響使用，靜靜略過。
+  }
+}
+
+void checkForUpdate();
+
 if (adoptWorkerFromQuery()) history.replaceState(null, "", location.pathname);
 workerInput.value = getWorkerUrl();
 showWorkerState();
