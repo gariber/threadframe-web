@@ -1,0 +1,52 @@
+name: 部署到 GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  # 允許在 Actions 分頁手動觸發一次部署，不必為了重新部署硬推一個 commit。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 同時只跑一個部署；新的 push 進來時取消排隊中的舊部署，
+# 但不打斷正在進行的那次，避免 Pages 停在半完成狀態。
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # ci 會嚴格照 package-lock.json 安裝，鎖檔對不上就直接失敗，
+      # 不像 install 會自己改寫鎖檔。
+      - run: npm ci
+
+      # build script 本身包含 tsc --noEmit，型別錯誤會擋下部署。
+      - run: npm run build
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
