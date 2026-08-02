@@ -35,11 +35,11 @@ jobs:
       # build script 本身包含 tsc --noEmit，型別錯誤會擋下部署。
       - run: npm run build
 
-      # enablement 會在 Pages 還沒開啟時自動開啟並設成 GitHub Actions 來源，
-      # 省掉到 Settings → Pages 手動設定那一步。
+      # 不使用 enablement —— 建立 Pages 站台需要 repo admin 權限，
+      # Actions 的內建 GITHUB_TOKEN 拿不到，只會得到 "Resource not accessible
+      # by integration"。Pages 必須先在 Settings → Pages 手動啟用一次
+      # （Source 選 GitHub Actions），之後這個 workflow 就能持續部署。
       - uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
