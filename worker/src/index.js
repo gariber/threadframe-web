@@ -95,25 +95,46 @@ async function handlePost(target) {
     return json({ error: "not_threads", message: "只接受 Threads 的貼文連結" }, 400);
   }
 
-  const upstream = await fetch(parsed.toString(), {
-    headers: {
-      "user-agent": CRAWLER_UA,
-      "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
-      accept: "text/html,application/xhtml+xml",
-    },
-    redirect: "follow",
-  });
+  // Threads 偶爾會短暫限流或回傳沒有內嵌資料的精簡頁面，重試幾次就會拿到。
+  // 一次失敗就放棄的話，使用者看到的會是隨機失敗。
+  let post = null;
+  let finalUrl = parsed.toString();
+  let lastStatus = 0;
 
-  if (!upstream.ok) {
-    return json(
-      { error: "upstream", status: upstream.status, message: "Threads 沒有回應這則貼文" },
-      502,
-    );
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+
+    const upstream = await fetch(parsed.toString(), {
+      headers: {
+        "user-agent": CRAWLER_UA,
+        "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+        accept: "text/html,application/xhtml+xml",
+      },
+      redirect: "follow",
+    });
+
+    lastStatus = upstream.status;
+    if (!upstream.ok) continue;
+
+    const found = findPost(await upstream.text());
+    if (found) {
+      post = found;
+      finalUrl = upstream.url;
+      break;
+    }
   }
 
-  const html = await upstream.text();
-  const post = findPost(html);
   if (!post) {
+    if (lastStatus && lastStatus !== 200) {
+      return json(
+        {
+          error: "upstream",
+          status: lastStatus,
+          message: "Threads 這次沒有回應（試了 3 次）。通常是暫時限流，稍等一下再按一次就好。",
+        },
+        502,
+      );
+    }
     // 鎖帳號、已刪除，或 Threads 換了頁面結構時會走到這裡。
     return json(
       {
@@ -127,7 +148,7 @@ async function handlePost(target) {
   const info = post.text_post_app_info ?? {};
   return json(
     {
-      url: upstream.url.split("?")[0],
+      url: finalUrl.split("?")[0],
       username: post.user?.username ?? "",
       name: post.user?.full_name || post.user?.username || "",
       verified: Boolean(post.user?.is_verified),
