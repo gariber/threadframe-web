@@ -1,7 +1,15 @@
 export type ParsedUrl = { handle: string; code: string; url: string };
 
+/**
+ * Threads 的連結有好幾種型態：
+ *   /@user/post/CODE   網頁版網址列
+ *   /t/CODE            舊的短連結
+ *   /share/CODE        手機 app「複製連結」給的格式
+ *   /p/CODE            少數情況
+ * 只認前兩種會讓手機使用者最常用的那一種完全比對不到。
+ */
 const URL_RE =
-  /https?:\/\/(?:www\.)?threads\.(?:net|com)\/(?:@([A-Za-z0-9._]+)\/post\/([A-Za-z0-9_-]+)|t\/([A-Za-z0-9_-]+))/i;
+  /https?:\/\/(?:www\.)?threads\.(?:net|com)\/(?:@([A-Za-z0-9._]+)\/post\/([A-Za-z0-9_-]+)|(?:t|share|p)\/([A-Za-z0-9_-]+))/i;
 
 /** 從一段文字裡找出第一個 Threads 貼文網址。找不到回傳 null。 */
 export function parseThreadsUrl(input: string): ParsedUrl | null {
@@ -14,6 +22,15 @@ export function parseThreadsUrl(input: string): ParsedUrl | null {
 export function isThreadsUrl(input: string): boolean {
   return URL_RE.test(input.trim());
 }
+
+/**
+ * 從內文中剔除網址時要連結尾的斜線與 query 一起吃掉，否則會留下一個
+ * 孤零零的 "/"，接著被當成作者名稱，把真正的名稱與帳號整個往後擠。
+ */
+const URL_STRIP_RE = new RegExp(`${URL_RE.source}/?(?:[?#][^\\s]*)?`, "gi");
+
+/** 只剩標點或斜線的行沒有意義，留著只會佔掉名稱或內文的位置。 */
+const PUNCT_ONLY_RE = /^[\s/\\|·・.,:;–—-]+$/;
 
 /**
  * 相對時間（2 小時 / 3天 / 5m / 2h / 昨天）或絕對日期。
@@ -56,10 +73,10 @@ export function parsePastedPost(raw: string): ParsedPaste {
 
   // 保留空行 —— Threads 貼文常靠空行分段，濾掉的話排版會走樣。
   const lines = raw
-    .replace(URL_RE, "")
+    .replace(URL_STRIP_RE, "")
     .split(/\r?\n/)
     .map((l) => l.trim())
-    .filter((l) => !NOISE_RE.test(l));
+    .filter((l) => !NOISE_RE.test(l) && !PUNCT_ONLY_RE.test(l));
 
   const dropEdgeBlanks = () => {
     while (lines.length > 0 && lines[0] === "") lines.shift();

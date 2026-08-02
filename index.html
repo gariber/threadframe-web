@@ -35,14 +35,16 @@
         <textarea
           id="intake"
           rows="3"
-          placeholder="貼上整則貼文，或只貼網址&#10;（在 Threads 長按貼文 → 複製連結／選取文字複製）"
+          placeholder="貼上貼文的「文字」&#10;（在 Threads 上長按貼文內容 → 選取文字 → 複製）"
         ></textarea>
         <div class="intake-row">
           <button id="paste">貼上</button>
           <button id="apply" class="primary">帶入卡片</button>
         </div>
+        <p class="err" id="intake-status" hidden></p>
         <p class="hint" id="intake-hint">
-          Threads 不開放網頁跨網域讀取貼文，所以內容由你貼上、在本機排版。貼上後每個欄位都還能改。
+          只有網址帶不出內容 —— Threads 不開放網頁跨網域讀取貼文，所以文字要你自己複製過來。
+          貼上後每個欄位都還能改。
         </p>
       </div>
 

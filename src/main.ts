@@ -116,8 +116,25 @@ function applyIntake(): void {
   if (parsed.url !== undefined) post.url = parsed.url;
 
   syncFields();
-  // 內容已經進到下面的欄位，留著原始貼上區只會讓人以為還沒帶入。
-  intake.value = "";
+
+  // 只貼網址是最常見的用法，但網頁讀不到貼文內容 —— 與其默默把連結
+  // 當成內文畫進卡片，不如直接說清楚為什麼沒有東西出現。
+  const status = $("intake-status");
+  const gotContent = Boolean(parsed.text?.trim() || parsed.name?.trim());
+
+  if (gotContent) {
+    status.hidden = true;
+    // 內容已經進到下面的欄位，留著原始貼上區只會讓人以為還沒帶入。
+    intake.value = "";
+  } else if (parsed.url) {
+    status.hidden = false;
+    status.textContent =
+      "只收到網址，已填進「網址」欄。網頁沒辦法從 Threads 讀出貼文內容 —— 請回到那則貼文，長按內文選取文字並複製，再貼一次。";
+  } else {
+    status.hidden = false;
+    status.textContent = "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。";
+  }
+
   draw();
 }
 
