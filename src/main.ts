@@ -1,5 +1,6 @@
 import "./styles.css";
-import { BACKGROUNDS } from "./backgrounds";
+import { BACKGROUNDS, findBackground, gradientCss } from "./backgrounds";
+import { PRESETS, type Preset } from "./presets";
 import { parsePastedPost } from "./parse";
 import { renderCard, type Assets } from "./render";
 import {
@@ -89,6 +90,8 @@ function draw(): void {
 
 function commit(): void {
   saveStyle(style);
+  // 手動調過任何一個滑桿就不再吻合任何預設，選中狀態要跟著撤掉。
+  paintPresets();
   draw();
 }
 
@@ -183,6 +186,59 @@ $("clear-images").addEventListener("click", () => {
   updateImageCount();
   draw();
 });
+
+// ── 樣式預設 ─────────────────────────────────────────────
+const presetList = $("presets");
+
+function matchesPreset(preset: Preset): boolean {
+  if (style.customBg) return false;
+  return (Object.keys(preset.style) as (keyof Preset["style"])[]).every(
+    (key) => style[key] === preset.style[key],
+  );
+}
+
+function applyPreset(preset: Preset): void {
+  Object.assign(style, preset.style);
+  // 預設自帶底圖，套用時要把使用者上傳的自訂底圖讓開。
+  style.customBg = null;
+  assets.bg = null;
+  $<HTMLInputElement>("f-bg").value = "";
+  syncControls();
+  paintSwatches();
+  commit();
+}
+
+function paintPresets(): void {
+  presetList.replaceChildren();
+
+  for (const preset of PRESETS) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset";
+    btn.setAttribute("aria-pressed", String(matchesPreset(preset)));
+
+    const thumb = document.createElement("span");
+    thumb.className = "preset-thumb";
+    thumb.style.background = gradientCss(findBackground(preset.style.bgId));
+
+    // 縮圖裡的小方塊代表底板，讓圓角、留白與透明度一眼看得出差異。
+    const panel = document.createElement("span");
+    panel.className = "preset-panel";
+    panel.style.background = preset.style.panelColor;
+    panel.style.opacity = String(preset.style.panelAlpha);
+    panel.style.borderRadius = `${Math.max(1, preset.style.radius / 7)}px`;
+    panel.style.inset = `${Math.round(preset.style.pad / 14)}px`;
+    thumb.append(panel);
+
+    const name = document.createElement("span");
+    name.className = "preset-name";
+    name.textContent = preset.name;
+
+    btn.append(thumb, name);
+    btn.addEventListener("click", () => applyPreset(preset));
+    presetList.append(btn);
+  }
+}
 
 // ── 留言 ─────────────────────────────────────────────────
 const commentList = $("comments");
@@ -299,9 +355,7 @@ function paintSwatches(): void {
     btn.title = bg.name;
     btn.setAttribute("aria-label", bg.name);
     btn.setAttribute("aria-pressed", String(!style.customBg && style.bgId === bg.id));
-    btn.style.background = `linear-gradient(${bg.angle}deg, ${bg.stops
-      .map(([at, color]) => `${color} ${Math.round(at * 100)}%`)
-      .join(", ")})`;
+    btn.style.background = gradientCss(bg);
     btn.addEventListener("click", () => applyBackground(bg));
     swatches.append(btn);
   }
@@ -458,6 +512,7 @@ function readShareTarget(): void {
 }
 
 paintSwatches();
+paintPresets();
 paintComments();
 syncControls();
 syncFields();

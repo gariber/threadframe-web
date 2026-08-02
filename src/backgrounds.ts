@@ -39,6 +39,12 @@ export function findBackground(id: string): Background {
   return BACKGROUNDS.find((b) => b.id === id) ?? DEFAULT_BACKGROUND;
 }
 
+/** 給 DOM 預覽用的漸層字串，與 canvas 的角度定義一致。 */
+export function gradientCss(bg: Background): string {
+  const stops = bg.stops.map(([at, color]) => `${color} ${Math.round(at * 100)}%`).join(", ");
+  return `linear-gradient(${bg.angle}deg, ${stops})`;
+}
+
 /**
  * 依角度在畫布上建立線性漸層。角度以「順時針、0 度為由上往下」定義，
  * 與 CSS linear-gradient 一致，方便日後把預設值搬到 CSS 上預覽。

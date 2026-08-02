@@ -280,6 +280,55 @@ fieldset.ratio label {
   margin-right: 0.9rem;
 }
 
+.presets {
+  display: flex;
+  gap: 0.55rem;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.5rem;
+  -webkit-overflow-scrolling: touch;
+}
+
+.preset {
+  flex: 0 0 auto;
+  padding: 0.35rem;
+  border-radius: 10px;
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.preset-thumb {
+  display: block;
+  position: relative;
+  width: 62px;
+  height: 78px;
+  border-radius: 7px;
+  overflow: hidden;
+}
+
+.preset-panel {
+  position: absolute;
+}
+
+.preset-name {
+  font-size: 0.75rem;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+
+.preset[aria-pressed="true"] {
+  border-color: var(--ink);
+}
+
+.preset[aria-pressed="true"] .preset-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
 .comment-row {
   border: 1px solid var(--line);
   border-radius: 10px;
