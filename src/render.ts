@@ -1,5 +1,5 @@
 import { findBackground, makeGradient } from "./backgrounds";
-import type { Post, Style } from "./state";
+import { MAX_COMMENTS, type Post, type Style } from "./state";
 
 /** 輸出寬度固定，與裝置螢幕寬度無關；預覽只是把同一張圖縮小顯示。 */
 export const EXPORT_W = 1080;
@@ -11,6 +11,8 @@ export type Assets = {
   avatar: HTMLImageElement | null;
   images: HTMLImageElement[];
   bg: HTMLImageElement | null;
+  /** 與 post.comments 同索引；沒上傳頭像的位置放 null。 */
+  commentAvatars: (HTMLImageElement | null)[];
 };
 
 const CJK_RE = /[ᄀ-ᇿ⺀-鿿　-〿가-힯豈-﫿＀-￯]/;
@@ -173,6 +175,39 @@ function repeatPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: numb
   ctx.lineTo(x + s * 0.4, y + s * 0.82);
 }
 
+/** 圓形頭像：有圖就裁圓，沒圖就用名稱首字，遮蔽身分時只留素色圓。 */
+function drawAvatar(
+  c: CanvasRenderingContext2D,
+  img: HTMLImageElement | null,
+  x: number,
+  y: number,
+  size: number,
+  ink: string,
+  name: string,
+  masked: boolean,
+): void {
+  c.save();
+  c.beginPath();
+  c.arc(x + size / 2, y + size / 2, size / 2, 0, Math.PI * 2);
+  c.clip();
+  if (img && !masked) {
+    drawCover(c, img, x, y, size, size);
+  } else {
+    c.fillStyle = softInk(ink, 0.14);
+    c.fillRect(x, y, size, size);
+    if (!masked && name) {
+      c.fillStyle = softInk(ink, 0.55);
+      c.font = font(Math.round(size * 0.42), 600);
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText([...name][0], x + size / 2, y + size / 2);
+    }
+  }
+  c.restore();
+  c.textAlign = "left";
+  c.textBaseline = "top";
+}
+
 type Metrics = { height: number; draw: (ctx: CanvasRenderingContext2D, top: number) => void };
 
 /**
@@ -207,25 +242,16 @@ function layout(
         let x = 0;
         if (style.showAvatar) {
           const cy = top + headH / 2;
-          c.save();
-          c.beginPath();
-          c.arc(x + avatarSize / 2, cy, avatarSize / 2, 0, Math.PI * 2);
-          c.clip();
-          if (assets.avatar && !style.maskIdentity) {
-            drawCover(c, assets.avatar, x, cy - avatarSize / 2, avatarSize, avatarSize);
-          } else {
-            c.fillStyle = softInk(ink, 0.14);
-            c.fillRect(x, cy - avatarSize / 2, avatarSize, avatarSize);
-            if (!style.maskIdentity && name) {
-              c.fillStyle = softInk(ink, 0.55);
-              c.font = font(Math.round(avatarSize * 0.42), 600);
-              c.textAlign = "center";
-              c.textBaseline = "middle";
-              c.fillText([...name][0], x + avatarSize / 2, cy);
-              c.textAlign = "left";
-            }
-          }
-          c.restore();
+          drawAvatar(
+            c,
+            assets.avatar,
+            x,
+            cy - avatarSize / 2,
+            avatarSize,
+            ink,
+            name,
+            style.maskIdentity,
+          );
           x += avatarSize + Math.round(size * 0.5);
         }
 
@@ -350,6 +376,84 @@ function layout(
           x += c.measureText(value).width + Math.round(size * 0.9);
         }
         c.textBaseline = "top";
+      },
+    });
+  }
+
+  // ── 留言 ───────────────────────────────────────────────
+  const comments = style.showComments
+    ? post.comments
+        .map((comment, index) => ({ comment, index }))
+        .filter(({ comment }) => comment.text.trim() || comment.name.trim())
+        .slice(0, MAX_COMMENTS)
+    : [];
+
+  if (comments.length > 0) {
+    const avatarSize = Math.round(size * 1.15);
+    const nameSize = Math.round(size * 0.78);
+    const bodySize = Math.round(size * 0.85);
+    const bodyLineH = Math.round(bodySize * 1.5);
+    const indent = avatarSize + Math.round(size * 0.45);
+    const between = Math.round(size * 0.75);
+    const afterRule = Math.round(size * 0.65);
+
+    ctx.font = font(bodySize, 400);
+    const items = comments.map(({ comment, index }) => {
+      const lines = comment.text.trim()
+        ? wrapText(ctx, comment.text.trim(), contentW - indent)
+        : [];
+      return {
+        comment,
+        avatar: assets.commentAvatars[index] ?? null,
+        lines,
+        height: Math.max(avatarSize, nameSize + 6 + lines.length * bodyLineH),
+      };
+    });
+
+    blocks.push({
+      height:
+        afterRule + items.reduce((sum, i) => sum + i.height, 0) + (items.length - 1) * between,
+      draw: (c, top) => {
+        c.strokeStyle = softInk(ink, 0.13);
+        c.lineWidth = 2;
+        c.beginPath();
+        c.moveTo(0, top + 1);
+        c.lineTo(contentW, top + 1);
+        c.stroke();
+
+        let y = top + afterRule;
+        for (const item of items) {
+          const author = style.maskIdentity ? "匿名" : item.comment.name.trim();
+          drawAvatar(c, item.avatar, 0, y, avatarSize, ink, author, style.maskIdentity);
+
+          c.textBaseline = "top";
+          c.fillStyle = ink;
+          c.font = font(nameSize, 700);
+          c.fillText(author, indent, y);
+
+          const likes = item.comment.likes.trim();
+          if (likes) {
+            const nameW = c.measureText(author).width;
+            const heart = Math.round(nameSize * 0.8);
+            const hx = indent + nameW + Math.round(size * 0.4);
+            c.save();
+            c.fillStyle = softInk(ink, 0.45);
+            heartPath(c, hx, y + (nameSize - heart) / 2, heart);
+            c.fill();
+            c.restore();
+            c.fillStyle = softInk(ink, 0.45);
+            c.font = font(Math.round(nameSize * 0.9), 400);
+            c.fillText(likes, hx + heart + Math.round(size * 0.16), y + 1);
+          }
+
+          c.fillStyle = softInk(ink, 0.85);
+          c.font = font(bodySize, 400);
+          item.lines.forEach((line, i) => {
+            c.fillText(line, indent, y + nameSize + 6 + i * bodyLineH + (bodyLineH - bodySize) / 2);
+          });
+
+          y += item.height + between;
+        }
       },
     });
   }

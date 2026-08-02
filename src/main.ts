@@ -2,7 +2,17 @@ import "./styles.css";
 import { BACKGROUNDS } from "./backgrounds";
 import { parsePastedPost } from "./parse";
 import { renderCard, type Assets } from "./render";
-import { emptyPost, loadStyle, saveStyle, type Post, type Ratio, type Style } from "./state";
+import {
+  emptyComment,
+  emptyPost,
+  loadStyle,
+  MAX_COMMENTS,
+  saveStyle,
+  type Comment,
+  type Post,
+  type Ratio,
+  type Style,
+} from "./state";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -12,7 +22,7 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
 
 const post: Post = emptyPost();
 let style: Style = loadStyle();
-const assets: Assets = { avatar: null, images: [], bg: null };
+const assets: Assets = { avatar: null, images: [], bg: null, commentAvatars: [] };
 
 const canvas = $<HTMLCanvasElement>("canvas");
 const emptyMsg = $("empty");
@@ -174,6 +184,96 @@ $("clear-images").addEventListener("click", () => {
   draw();
 });
 
+// ── 留言 ─────────────────────────────────────────────────
+const commentList = $("comments");
+const addComment = $<HTMLButtonElement>("add-comment");
+
+function labelled(text: string, control: HTMLElement, stack = false): HTMLLabelElement {
+  const label = document.createElement("label");
+  if (stack) label.className = "stack";
+  label.append(text, control);
+  return label;
+}
+
+function paintComments(): void {
+  commentList.replaceChildren();
+
+  post.comments.forEach((comment, index) => {
+    const row = document.createElement("div");
+    row.className = "comment-row";
+
+    const head = document.createElement("div");
+    head.className = "comment-head";
+    const title = document.createElement("span");
+    title.textContent = `留言 ${index + 1}`;
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "刪除";
+    remove.addEventListener("click", () => {
+      post.comments.splice(index, 1);
+      assets.commentAvatars.splice(index, 1);
+      paintComments();
+      draw();
+    });
+    head.append(title, remove);
+
+    const bind = <K extends keyof Comment>(el: HTMLInputElement | HTMLTextAreaElement, key: K) => {
+      el.value = comment[key] as string;
+      el.addEventListener("input", () => {
+        (comment[key] as string) = el.value;
+        draw();
+      });
+    };
+
+    const name = document.createElement("input");
+    name.type = "text";
+    name.autocomplete = "off";
+    bind(name, "name");
+
+    const text = document.createElement("textarea");
+    text.rows = 2;
+    bind(text, "text");
+
+    const likes = document.createElement("input");
+    likes.type = "text";
+    likes.inputMode = "numeric";
+    bind(likes, "likes");
+
+    const avatar = document.createElement("input");
+    avatar.type = "file";
+    avatar.accept = "image/*";
+    avatar.addEventListener("change", async () => {
+      const file = avatar.files?.[0];
+      if (!file) return;
+      const img = await fileToImage(file);
+      assets.commentAvatars[index] = img;
+      comment.avatar = img.src;
+      draw();
+    });
+
+    const bottom = document.createElement("div");
+    bottom.className = "triple";
+    bottom.append(labelled("讚", likes), labelled("頭像", avatar));
+
+    row.append(head, labelled("名稱", name), labelled("內文", text, true), bottom);
+    commentList.append(row);
+  });
+
+  addComment.disabled = post.comments.length >= MAX_COMMENTS;
+  $("comment-hint").textContent =
+    post.comments.length >= MAX_COMMENTS
+      ? `最多 ${MAX_COMMENTS} 則。留言同樣要自己貼上 —— 網頁讀不到 Threads 的留言串。`
+      : `最多 ${MAX_COMMENTS} 則，依照你排列的順序顯示。`;
+}
+
+addComment.addEventListener("click", () => {
+  if (post.comments.length >= MAX_COMMENTS) return;
+  post.comments.push(emptyComment());
+  assets.commentAvatars.push(null);
+  paintComments();
+  draw();
+});
+
 // ── 背景 ─────────────────────────────────────────────────
 const swatches = $("swatches");
 
@@ -277,6 +377,7 @@ const toggles: [string, keyof Style][] = [
   ["t-stats", "showStats"],
   ["t-time", "showTime"],
   ["t-images", "showImages"],
+  ["t-comments", "showComments"],
   ["t-url", "showUrl"],
   ["t-mask", "maskIdentity"],
 ];
@@ -357,6 +458,7 @@ function readShareTarget(): void {
 }
 
 paintSwatches();
+paintComments();
 syncControls();
 syncFields();
 readShareTarget();

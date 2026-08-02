@@ -2,6 +2,18 @@ import { DEFAULT_BACKGROUND } from "./backgrounds";
 
 export type Ratio = "portrait" | "square" | "auto";
 
+export const MAX_COMMENTS = 3;
+
+export type Comment = {
+  name: string;
+  text: string;
+  likes: string;
+  /** dataURL；null 時改用名稱首字的圓形底。 */
+  avatar: string | null;
+};
+
+export const emptyComment = (): Comment => ({ name: "", text: "", likes: "", avatar: null });
+
 export type Post = {
   name: string;
   handle: string;
@@ -16,6 +28,7 @@ export type Post = {
   reposts: string;
   /** 貼文原始網址，僅顯示於卡片底部（可關閉），不會被送到任何地方。 */
   url: string;
+  comments: Comment[];
 };
 
 export type Style = {
@@ -34,6 +47,7 @@ export type Style = {
   showTime: boolean;
   showImages: boolean;
   showUrl: boolean;
+  showComments: boolean;
   maskIdentity: boolean;
 };
 
@@ -50,6 +64,7 @@ export const emptyPost = (): Post => ({
   replies: "",
   reposts: "",
   url: "",
+  comments: [],
 });
 
 export const defaultStyle = (): Style => ({
@@ -67,6 +82,7 @@ export const defaultStyle = (): Style => ({
   showTime: true,
   showImages: true,
   showUrl: false,
+  showComments: true,
   maskIdentity: false,
 });
 

@@ -280,6 +280,38 @@ fieldset.ratio label {
   margin-right: 0.9rem;
 }
 
+.comment-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.7rem 0.8rem 0.1rem;
+  margin-bottom: 0.6rem;
+}
+
+.comment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+}
+
+.comment-head button {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+}
+
+.comment-row label.stack textarea {
+  width: 100%;
+}
+
+.comment-row input[type="file"] {
+  display: block;
+  margin-top: 0.3rem;
+  max-width: 100%;
+  font-size: 0.78rem;
+}
+
 .swatches {
   display: flex;
   gap: 0.4rem;
