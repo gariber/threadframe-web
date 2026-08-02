@@ -2,7 +2,15 @@ import "./styles.css";
 import { BACKGROUNDS, findBackground, WALLPAPERS, type Background } from "./backgrounds";
 import { FONTS } from "./fonts";
 import { PRESETS, type Preset } from "./presets";
-import { parsePastedPost } from "./parse";
+import { adoptWorkerFromQuery, getWorkerUrl, setWorkerUrl } from "./config";
+import {
+  fetchThreadsPost,
+  formatCount,
+  formatTime,
+  proxyImage,
+  type FetchedPost,
+} from "./fetchPost";
+import { parsePastedPost, parseThreadsUrl } from "./parse";
 import { renderCard, type Assets } from "./render";
 import {
   defaultStyle,
@@ -100,10 +108,90 @@ function commit(): void {
 // ── 貼上與帶入 ───────────────────────────────────────────
 const intake = $<HTMLTextAreaElement>("intake");
 
+/** 從網址載入圖片。crossOrigin 必須設，否則 canvas 會被污染而無法匯出。 */
+function urlToImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("圖片載入失敗"));
+    img.src = url;
+  });
+}
+
+function setStatus(kind: "hint" | "err" | "none", text = ""): void {
+  const status = $("intake-status");
+  status.hidden = kind === "none";
+  status.className = kind === "err" ? "err" : "hint";
+  status.textContent = text;
+}
+
+async function fillFromFetched(data: FetchedPost): Promise<void> {
+  post.name = data.name || data.username;
+  post.handle = data.username;
+  post.text = data.text;
+  post.time = formatTime(data.takenAt);
+  post.likes = formatCount(data.likes);
+  post.replies = formatCount(data.replies);
+  post.reposts = formatCount(data.reposts);
+  post.shares = formatCount(data.shares);
+  post.url = data.url;
+  syncFields();
+  draw();
+
+  // 圖片比文字慢，先讓卡片出現再逐步補上，不要整段卡著等。
+  if (data.avatar) {
+    try {
+      assets.avatar = await urlToImage(proxyImage(data.avatar));
+      draw();
+    } catch {
+      // 頭像載不到不影響其他內容，留空即可。
+    }
+  }
+
+  if (data.images.length > 0) {
+    const loaded = await Promise.allSettled(data.images.map((u) => urlToImage(proxyImage(u))));
+    assets.images = loaded
+      .filter((r): r is PromiseFulfilledResult<HTMLImageElement> => r.status === "fulfilled")
+      .map((r) => r.value);
+    updateImageCount();
+    draw();
+  }
+}
+
+async function autoFill(url: string): Promise<void> {
+  const applyBtn = $<HTMLButtonElement>("apply");
+  applyBtn.disabled = true;
+  setStatus("hint", "讀取貼文中…");
+  try {
+    await fillFromFetched(await fetchThreadsPost(url));
+    setStatus("none");
+    intake.value = "";
+  } catch (e) {
+    setStatus(
+      "err",
+      `${(e as Error).message} 你仍然可以直接貼上貼文文字，或在下面的欄位手動填。`,
+    );
+  } finally {
+    applyBtn.disabled = false;
+  }
+}
+
 function applyIntake(): void {
   const raw = intake.value.trim();
   if (!raw) return;
-  const parsed = parsePastedPost(raw);
+
+  const link = parseThreadsUrl(raw);
+  const preview = parsePastedPost(raw);
+  const pastedContent = Boolean(preview.text?.trim() || preview.name?.trim());
+
+  // 只有連結、而且設定好取文服務 —— 走自動帶入。
+  if (link && !pastedContent && getWorkerUrl()) {
+    void autoFill(link.url);
+    return;
+  }
+
+  const parsed = preview;
 
   if (parsed.name !== undefined) post.name = parsed.name;
   if (parsed.handle !== undefined) post.handle = parsed.handle;
@@ -119,20 +207,19 @@ function applyIntake(): void {
 
   // 只貼網址是最常見的用法，但網頁讀不到貼文內容 —— 與其默默把連結
   // 當成內文畫進卡片，不如直接說清楚為什麼沒有東西出現。
-  const status = $("intake-status");
-  const gotContent = Boolean(parsed.text?.trim() || parsed.name?.trim());
-
-  if (gotContent) {
-    status.hidden = true;
+  if (pastedContent) {
+    setStatus("none");
     // 內容已經進到下面的欄位，留著原始貼上區只會讓人以為還沒帶入。
     intake.value = "";
   } else if (parsed.url) {
-    status.hidden = false;
-    status.textContent =
-      "只收到網址，已填進「網址」欄。網頁沒辦法從 Threads 讀出貼文內容 —— 請回到那則貼文，長按內文選取文字並複製，再貼一次。";
+    setStatus(
+      "err",
+      "只收到網址。要讓它自動帶入內容，請到下面「自動帶入」設定取文服務網址；" +
+        "或直接複製貼文文字貼上來。",
+    );
+    $("fetch-sheet").setAttribute("open", "");
   } else {
-    status.hidden = false;
-    status.textContent = "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。";
+    setStatus("err", "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。");
   }
 
   draw();
@@ -206,6 +293,51 @@ $("clear-images").addEventListener("click", () => {
   $<HTMLInputElement>("f-images").value = "";
   updateImageCount();
   draw();
+});
+
+// ── 取文服務設定 ─────────────────────────────────────────
+const workerInput = $<HTMLInputElement>("worker-url");
+const workerStatus = $("worker-status");
+
+function showWorkerState(): void {
+  const url = getWorkerUrl();
+  workerStatus.className = "hint";
+  workerStatus.textContent = url ? `已設定：${url}` : "尚未設定，目前是手動模式。";
+}
+
+workerInput.addEventListener("change", () => {
+  setWorkerUrl(workerInput.value);
+  workerInput.value = getWorkerUrl();
+  showWorkerState();
+});
+
+$("worker-test").addEventListener("click", async () => {
+  setWorkerUrl(workerInput.value);
+  workerInput.value = getWorkerUrl();
+  const url = getWorkerUrl();
+  if (!url) {
+    showWorkerState();
+    return;
+  }
+  workerStatus.className = "hint";
+  workerStatus.textContent = "測試中…";
+  try {
+    const res = await fetch(url);
+    const body = (await res.json()) as { ok?: boolean };
+    workerStatus.className = body?.ok ? "hint" : "err";
+    workerStatus.textContent = body?.ok
+      ? "連線正常，現在貼上連結就會自動帶入。"
+      : "有回應，但格式不對 —— 這個網址可能不是 ThreadFrame 的取文服務。";
+  } catch {
+    workerStatus.className = "err";
+    workerStatus.textContent = "連不上。請確認 Worker 已部署、網址正確且含 https://";
+  }
+});
+
+$("worker-clear").addEventListener("click", () => {
+  setWorkerUrl("");
+  workerInput.value = "";
+  showWorkerState();
 });
 
 // ── 樣式預設 ─────────────────────────────────────────────
@@ -726,6 +858,10 @@ function readShareTarget(): void {
   applyIntake();
   history.replaceState(null, "", location.pathname);
 }
+
+if (adoptWorkerFromQuery()) history.replaceState(null, "", location.pathname);
+workerInput.value = getWorkerUrl();
+showWorkerState();
 
 paintAllSwatches();
 paintPresets();

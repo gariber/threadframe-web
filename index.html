@@ -35,7 +35,7 @@
         <textarea
           id="intake"
           rows="3"
-          placeholder="貼上貼文的「文字」&#10;（在 Threads 上長按貼文內容 → 選取文字 → 複製）"
+          placeholder="貼上貼文連結&#10;（在 Threads 上點貼文右上角 ⋯ → 複製連結）"
         ></textarea>
         <div class="intake-row">
           <button id="paste">貼上</button>
@@ -43,8 +43,8 @@
         </div>
         <p class="err" id="intake-status" hidden></p>
         <p class="hint" id="intake-hint">
-          只有網址帶不出內容 —— Threads 不開放網頁跨網域讀取貼文，所以文字要你自己複製過來。
-          貼上後每個欄位都還能改。
+          貼上連結會自動帶入作者、頭像、內文、統計與圖片。也可以直接貼整段文字，
+          或在下面的欄位手動填。
         </p>
       </div>
 
@@ -181,6 +181,31 @@
             </select>
           </label>
           <label class="check"><input id="t-url" type="checkbox" />原始網址</label>
+        </div>
+      </details>
+
+      <details class="sheet" id="fetch-sheet">
+        <summary class="sheet-head">自動帶入</summary>
+        <div class="sheet-body">
+          <label class="stack">
+            取文服務網址
+            <input id="worker-url" type="url" spellcheck="false" autocomplete="off"
+                   placeholder="https://threadframe-fetch.你的帳號.workers.dev" />
+          </label>
+          <div class="intake-row">
+            <button id="worker-test" type="button">測試連線</button>
+            <button id="worker-clear" type="button">清除</button>
+          </div>
+          <p class="hint" id="worker-status"></p>
+          <p class="hint">
+            Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務。
+            repo 的 <code>worker/</code> 目錄有現成的 Cloudflare Worker，部署後把網址填在這裡
+            （只存在這台裝置）。沒填也能用，只是要自己貼文字。
+          </p>
+          <p class="hint">
+            注意：啟用之後，你貼上的連結會送到這支服務去取內容 ——
+            它是你自己部署、自己掌控的，但已經不是「完全不離開裝置」了。
+          </p>
         </div>
       </details>
 

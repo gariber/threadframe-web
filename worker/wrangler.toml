@@ -1,0 +1,5 @@
+name = "threadframe-fetch"
+main = "src/index.js"
+compatibility_date = "2026-08-01"
+
+# 這支 Worker 不需要任何 KV、D1 或密鑰，部署後直接就能用。
