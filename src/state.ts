@@ -94,7 +94,8 @@ export const defaultStyle = (): Style => ({
   showStats: true,
   showTime: true,
   showImages: true,
-  imageLimit: 4,
+  // 預設只放第一張 —— 多圖貼文整組貼上會把卡片拉得很長。
+  imageLimit: 1,
   showUrl: false,
   commentLimit: 3,
   maskIdentity: false,

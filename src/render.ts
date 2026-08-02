@@ -212,13 +212,16 @@ function bubblePath(ctx: CanvasRenderingContext2D, x: number, y: number, s: numb
   ctx.closePath();
 }
 
-/** 分享：紙飛機。 */
+/**
+ * 分享：紙飛機外框。左緣往內凹的那個缺口是關鍵 —— 少了它就只是一個
+ * 實心三角形，看起來會像定位圖釘而不是紙飛機。
+ */
 function sendPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.moveTo(x + s * 0.08, y + s * 0.5);
-  ctx.lineTo(x + s * 0.94, y + s * 0.12);
-  ctx.lineTo(x + s * 0.56, y + s * 0.92);
-  ctx.lineTo(x + s * 0.46, y + s * 0.58);
+  ctx.moveTo(x + s * 0.08, y + s * 0.14);
+  ctx.lineTo(x + s * 0.94, y + s * 0.5);
+  ctx.lineTo(x + s * 0.08, y + s * 0.86);
+  ctx.lineTo(x + s * 0.3, y + s * 0.5);
   ctx.closePath();
 }
 
@@ -358,31 +361,26 @@ function layout(
     ? assets.images.slice(0, Math.max(0, Math.min(4, style.imageLimit)))
     : [];
   if (images.length > 0) {
-    const cellGap = Math.round(size * 0.35);
+    const corner = Math.round(size * 0.4);
     let height: number;
     let cells: { x: number; y: number; w: number; h: number }[];
+    let single = false;
 
     if (images.length === 1) {
+      // 單張維持原始比例，不裁切。
       const img = images[0];
-      const h = Math.min(
-        (contentW * img.naturalHeight) / img.naturalWidth,
-        contentW * 1.4,
-      );
-      height = h;
-      cells = [{ x: 0, y: 0, w: contentW, h }];
-    } else if (images.length === 2 || images.length === 3) {
-      // 3 張排成一列，避免 2×2 網格空出一格造成視覺上的破洞。
-      const n = images.length;
-      const w = (contentW - cellGap * (n - 1)) / n;
-      height = w;
-      cells = images.map((_, i) => ({ x: i * (w + cellGap), y: 0, w, h: w }));
+      height = Math.min((contentW * img.naturalHeight) / img.naturalWidth, contentW * 1.4);
+      cells = [{ x: 0, y: 0, w: contentW, h: height }];
+      single = true;
     } else {
-      const w = (contentW - cellGap) / 2;
-      const rows = Math.ceil(images.length / 2);
-      height = rows * w + (rows - 1) * cellGap;
+      // 多張排成等大的方格且彼此不留間距，與 Threads 上的原始排列一致。
+      const cols = images.length === 3 ? 3 : 2;
+      const rows = Math.ceil(images.length / cols);
+      const w = contentW / cols;
+      height = rows * w;
       cells = images.map((_, i) => ({
-        x: (i % 2) * (w + cellGap),
-        y: Math.floor(i / 2) * (w + cellGap),
+        x: (i % cols) * w,
+        y: Math.floor(i / cols) * w,
         w,
         h: w,
       }));
@@ -391,16 +389,25 @@ function layout(
     blocks.push({
       height,
       draw: (c, top) => {
+        // 圓角只套在整塊外緣，格與格之間保持齊平。
+        c.save();
+        roundRect(c, 0, top, contentW, height, corner);
+        c.clip();
+        c.fillStyle = softInk(ink, 0.06);
+        c.fillRect(0, top, contentW, height);
+
         images.forEach((img, i) => {
           const cell = cells[i];
           c.save();
-          roundRect(c, cell.x, top + cell.y, cell.w, cell.h, Math.round(size * 0.4));
+          c.beginPath();
+          c.rect(cell.x, top + cell.y, cell.w, cell.h);
           c.clip();
-          c.fillStyle = softInk(ink, 0.06);
-          c.fill();
-          drawContain(c, img, cell.x, top + cell.y, cell.w, cell.h);
+          // 方格模式填滿格子，單張維持完整畫面。
+          const place = single ? drawContain : drawCover;
+          place(c, img, cell.x, top + cell.y, cell.w, cell.h);
           c.restore();
         });
+        c.restore();
       },
     });
   }
@@ -449,7 +456,21 @@ function layout(
 
         const rowTop = top + ruleGap;
         const cy = rowTop + iconSize / 2;
-        let x = 0;
+
+        // 先量出整列寬度才能置中。
+        c.font = font(valueSize, 400);
+        const dotW = c.measureText("·").width;
+        const rowW = stats.reduce(
+          (sum, [, value], index) =>
+            sum +
+            (index > 0 ? dotW + dotGap : 0) +
+            iconSize +
+            iconGap +
+            c.measureText(value).width +
+            (index < stats.length - 1 ? dotGap : 0),
+          0,
+        );
+        let x = Math.max(0, (contentW - rowW) / 2);
 
         stats.forEach(([icon, value], index) => {
           if (index > 0) {
@@ -468,7 +489,8 @@ function layout(
           c.lineJoin = "round";
           c.lineCap = "round";
           icon(c, x, rowTop, iconSize);
-          if (icon === repeatPath) c.stroke();
+          // 轉發與分享是線條圖示，讚與留言是實心。
+          if (icon === repeatPath || icon === sendPath) c.stroke();
           else c.fill();
           c.restore();
           x += iconSize + iconGap;
