@@ -223,10 +223,14 @@ function applyIntake(): void {
   } else if (parsed.url) {
     setStatus(
       "err",
-      "只收到網址。要讓它自動帶入內容，請到下面「自動帶入」設定取文服務網址；" +
-        "或直接複製貼文文字貼上來。",
+      "只收到網址，但這台裝置還沒設定取文服務。下面已經幫你展開「自動帶入」，" +
+        "把 Worker 網址填進去就會自動帶入；或直接複製貼文文字貼上來。",
     );
-    $("fetch-sheet").setAttribute("open", "");
+    // 光是展開還不夠 —— 那個區塊在畫面下方，不捲過去等於沒提示。
+    const sheet = $("fetch-sheet");
+    sheet.setAttribute("open", "");
+    sheet.scrollIntoView({ behavior: "smooth", block: "center" });
+    $<HTMLInputElement>("worker-url").focus({ preventScroll: true });
   } else {
     setStatus("err", "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。");
   }
