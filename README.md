@@ -7,7 +7,7 @@
 貼上貼文連結就會自動帶入作者、頭像、內文、時間、四項統計與圖片 —— 你只要挑樣式、存圖。
 
 這需要一支中繼服務（`worker/` 目錄，Cloudflare Worker，免費方案就夠）。
-部署方式見 [worker/README.md](worker/README.md)，部署後把網址填進 app 的「自動帶入」設定即可。
+部署方式見 [worker/README.md](worker/README.md)，介面規格見 [worker/API.md](worker/API.md)，部署後把網址填進 app 的「自動帶入」設定即可。
 
 沒有部署也能用，只是要自己複製貼文文字貼上來。
 
