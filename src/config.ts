@@ -37,6 +37,35 @@ export function isUsingDefaultWorker(): boolean {
   }
 }
 
+/**
+ * 檢查一個值能不能當取文位址，不行就回傳原因。
+ *
+ * 特別要擋掉 Threads 連結：使用者很容易把貼文網址貼進設定欄，
+ * 存進去之後每次請求都會打向 threads.com 而失敗，錯誤訊息卻指向
+ * 「連不上取文服務」，根本看不出是設定被覆蓋了。
+ */
+export function validateWorkerUrl(value: string): string | null {
+  const clean = value.trim();
+  if (!clean) return null; // 空字串是合法的：代表停用
+
+  let parsed: URL;
+  try {
+    parsed = new URL(clean);
+  } catch {
+    return "這不是一個完整網址，要包含 https://";
+  }
+  if (parsed.protocol !== "https:" && parsed.hostname !== "localhost") {
+    return "取文位址必須是 https://";
+  }
+  if (/(^|\.)threads\.(com|net)$/i.test(parsed.hostname)) {
+    return "這是一條 Threads 連結，不是取文服務的位址 —— 貼文連結要貼在上面的輸入框。";
+  }
+  if (parsed.hostname === location.hostname) {
+    return "這是本站網址，不是取文服務的位址。";
+  }
+  return null;
+}
+
 /** 存下自訂位址；傳空字串等於停用自動帶入。 */
 export function setWorkerUrl(value: string): void {
   try {
@@ -59,6 +88,26 @@ export function resetWorkerUrl(): void {
 export function adoptWorkerFromQuery(): boolean {
   const fromQuery = new URLSearchParams(location.search).get("worker");
   if (fromQuery === null) return false;
+  if (validateWorkerUrl(fromQuery)) return false;
   setWorkerUrl(fromQuery);
   return true;
+}
+
+/**
+ * 開啟時清掉存壞的設定。
+ *
+ * 舊版會在取文失敗後把焦點移到設定欄位，使用者下一次貼連結就貼進了設定欄，
+ * 把取文位址覆蓋成一條 Threads 連結。那個行為已經移除，但已經壞掉的裝置
+ * 需要能自己恢復，否則使用者只會一直看到「連不上取文服務」。
+ */
+export function repairWorkerUrl(): boolean {
+  try {
+    const saved = localStorage.getItem(KEY);
+    if (saved === null || saved.trim() === "") return false;
+    if (!validateWorkerUrl(saved)) return false;
+    localStorage.removeItem(KEY);
+    return true;
+  } catch {
+    return false;
+  }
 }

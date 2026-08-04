@@ -6,8 +6,10 @@ import {
   adoptWorkerFromQuery,
   getWorkerUrl,
   isUsingDefaultWorker,
+  repairWorkerUrl,
   resetWorkerUrl,
   setWorkerUrl,
+  validateWorkerUrl,
 } from "./config";
 import {
   fetchThreadsPost,
@@ -233,10 +235,11 @@ function applyIntake(): void {
         "把 Worker 網址填進去就會自動帶入；或直接複製貼文文字貼上來。",
     );
     // 光是展開還不夠 —— 那個區塊在畫面下方，不捲過去等於沒提示。
+    // 但不要自動聚焦設定欄位：游標留在那裡的話，使用者下一次貼連結
+    // 會貼進設定欄而不是輸入框，把取文位址覆蓋成一條 Threads 連結。
     const sheet = $("fetch-sheet");
     sheet.setAttribute("open", "");
     sheet.scrollIntoView({ behavior: "smooth", block: "center" });
-    $<HTMLInputElement>("worker-url").focus({ preventScroll: true });
   } else {
     setStatus("err", "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。");
   }
@@ -330,15 +333,26 @@ function showWorkerState(): void {
   }
 }
 
-workerInput.addEventListener("change", () => {
+/** 存下輸入框的值；不合法就退回原設定並說明原因。回傳是否成功。 */
+function commitWorkerInput(): boolean {
+  const problem = validateWorkerUrl(workerInput.value);
+  if (problem) {
+    workerStatus.className = "err";
+    workerStatus.textContent = problem;
+    workerInput.value = getWorkerUrl();
+    return false;
+  }
   setWorkerUrl(workerInput.value);
   workerInput.value = getWorkerUrl();
-  showWorkerState();
+  return true;
+}
+
+workerInput.addEventListener("change", () => {
+  if (commitWorkerInput()) showWorkerState();
 });
 
 $("worker-test").addEventListener("click", async () => {
-  setWorkerUrl(workerInput.value);
-  workerInput.value = getWorkerUrl();
+  if (!commitWorkerInput()) return;
   const url = getWorkerUrl();
   if (!url) {
     showWorkerState();
@@ -917,9 +931,14 @@ async function checkForUpdate(): Promise<void> {
 
 void checkForUpdate();
 
+const repaired = repairWorkerUrl();
 if (adoptWorkerFromQuery()) history.replaceState(null, "", location.pathname);
 workerInput.value = getWorkerUrl();
 showWorkerState();
+if (repaired) {
+  workerStatus.className = "hint";
+  workerStatus.textContent = `先前存了一個無效的取文位址，已改回內建預設：${getWorkerUrl()}`;
+}
 
 paintAllSwatches();
 paintPresets();
