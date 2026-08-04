@@ -29,8 +29,11 @@ export async function fetchThreadsPost(postUrl: string): Promise<FetchedPost> {
   let response: Response;
   try {
     response = await fetch(`${worker}?url=${encodeURIComponent(postUrl)}`);
-  } catch {
-    throw new FetchPostError("連不上取文服務，請確認網址是否正確、服務是否還在。");
+  } catch (e) {
+    // 把實際用到的網址與底層錯誤一併顯示 —— 少了這些，使用者回報時
+    // 分不出是網址填錯、服務掛掉，還是被裝置上的阻擋器擋下。
+    const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    throw new FetchPostError(`連不上取文服務。呼叫的是 ${worker} ，瀏覽器回報 ${detail}。`);
   }
 
   let body: unknown;

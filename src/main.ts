@@ -341,9 +341,10 @@ $("worker-test").addEventListener("click", async () => {
     workerStatus.textContent = body?.ok
       ? "連線正常，現在貼上連結就會自動帶入。"
       : "有回應，但格式不對 —— 這個網址可能不是 ThreadFrame 的取文服務。";
-  } catch {
+  } catch (e) {
+    const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
     workerStatus.className = "err";
-    workerStatus.textContent = "連不上。請確認 Worker 已部署、網址正確且含 https://";
+    workerStatus.textContent = `連不上 ${url} —— 瀏覽器回報 ${detail}。請確認 Worker 已部署、網址正確且含 https://`;
   }
 });
 
