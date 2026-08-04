@@ -2,7 +2,13 @@ import "./styles.css";
 import { BACKGROUNDS, findBackground, WALLPAPERS, type Background } from "./backgrounds";
 import { FONTS } from "./fonts";
 import { PRESETS, type Preset } from "./presets";
-import { adoptWorkerFromQuery, getWorkerUrl, setWorkerUrl } from "./config";
+import {
+  adoptWorkerFromQuery,
+  getWorkerUrl,
+  isUsingDefaultWorker,
+  resetWorkerUrl,
+  setWorkerUrl,
+} from "./config";
 import {
   fetchThreadsPost,
   formatCount,
@@ -315,7 +321,13 @@ const workerStatus = $("worker-status");
 function showWorkerState(): void {
   const url = getWorkerUrl();
   workerStatus.className = "hint";
-  workerStatus.textContent = url ? `已設定：${url}` : "尚未設定，目前是手動模式。";
+  if (!url) {
+    workerStatus.textContent = "已停用自動帶入，目前是手動模式。";
+  } else if (isUsingDefaultWorker()) {
+    workerStatus.textContent = `使用內建預設：${url}`;
+  } else {
+    workerStatus.textContent = `使用自訂位址：${url}`;
+  }
 }
 
 workerInput.addEventListener("change", () => {
@@ -346,6 +358,12 @@ $("worker-test").addEventListener("click", async () => {
     workerStatus.className = "err";
     workerStatus.textContent = `連不上 ${url} —— 瀏覽器回報 ${detail}。請確認 Worker 已部署、網址正確且含 https://`;
   }
+});
+
+$("worker-reset").addEventListener("click", () => {
+  resetWorkerUrl();
+  workerInput.value = getWorkerUrl();
+  showWorkerState();
 });
 
 $("worker-clear").addEventListener("click", () => {

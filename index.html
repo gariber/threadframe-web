@@ -199,13 +199,15 @@
           </label>
           <div class="intake-row">
             <button id="worker-test" type="button">測試連線</button>
-            <button id="worker-clear" type="button">清除</button>
+            <button id="worker-reset" type="button">還原預設</button>
+            <button id="worker-clear" type="button">停用</button>
           </div>
           <p class="hint" id="worker-status"></p>
           <p class="hint">
             Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務。
-            repo 的 <code>worker/</code> 目錄有現成的 Cloudflare Worker，部署後把網址填在這裡
-            （只存在這台裝置）。沒填也能用，只是要自己貼文字。
+            內建了一個預設位址，通常不用改。想用自己的就填在這裡（只存在這台裝置），
+            repo 的 <code>worker/</code> 目錄有現成的 Cloudflare Worker。
+            按「停用」則回到全手動模式。
           </p>
           <p class="hint">
             注意：啟用之後，你貼上的連結會送到這支服務去取內容 ——

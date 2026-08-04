@@ -1,10 +1,11 @@
 # ThreadFrame 取文代理 — 介面規格
 
-實作在 [`src/index.js`](src/index.js)，單一檔案、零外部相依、184 行。
+實作在 [`src/index.js`](src/index.js)，單一檔案、零外部相依。
 這份文件描述的是**實際部署中的行為**，不是計畫。
 
-部署位址由使用者自行決定（Cloudflare Worker），前端把它存在 localStorage
-的 `threadframe.worker`，沒有寫死在程式碼裡。
+前端寫死了一個預設位址（`src/config.ts` 的 `DEFAULT_WORKER`），
+localStorage 的 `threadframe.worker` 可以覆蓋它，存空字串則停用自動帶入。
+因為位址公開，Worker 有來源白名單與速率限制（見下方）。
 
 ---
 
@@ -46,7 +47,7 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
 | 手機 app「複製連結」 | `/share/CODE` |
 | 少數情況 | `/p/CODE` |
 
-成功回應 `200`，附 `access-control-allow-origin: *` 與
+成功回應 `200`，附 `access-control-allow-origin`（回填實際 Origin）與
 `cache-control: public, max-age=300`：
 
 ```jsonc
@@ -75,8 +76,8 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
 `cdninstagram.com` 不回 CORS 標頭，前端若直接載入，canvas 會被污染
 （tainted），匯出時 `toBlob` / `toDataURL` 會丟 `SecurityError`。
 
-回應為圖片本體，`content-type` 沿用上游，附
-`access-control-allow-origin: *` 與 `cache-control: public, max-age=86400`。
+回應為圖片本體，`content-type` 沿用上游，附 `access-control-allow-origin`
+（回填實際 Origin）與 `cache-control: public, max-age=86400`。
 
 前端載入時必須設 `img.crossOrigin = "anonymous"`，否則即使有 CORS 標頭
 canvas 一樣會被污染。
@@ -93,7 +94,9 @@ canvas 一樣會被污染。
 | 400 | `not_threads` | 主機不在 Threads 白名單 |
 | 403 | `host_not_allowed` | `?img=` 的主機不是 Meta CDN |
 | 404 | `not_found` | 有回應但解析不到貼文：私人帳號、已刪除，或 Threads 改版 |
+| 403 | `origin_not_allowed` | 帶了 `Origin` 但不在來源白名單 |
 | 405 | `method_not_allowed` | 非 GET |
+| 429 | `rate_limited` | 超過每 IP 每分鐘 60 次，附 `retry-after: 60` |
 | 502 | `upstream` | 重試 3 次仍拿不到回應，另附 `status` 欄位帶上游狀態碼 |
 
 `404` 與 `502` 的區分是刻意的：前者是這則貼文的問題，後者是暫時性的，
@@ -123,15 +126,22 @@ canvas 一樣會被污染。
 
 **沒有使用 Cache API（`caches.default`）**。
 
-### Rate limit
+### 來源限制與 rate limit
 
-**沒有實作。** 沒有計數、沒有配額、沒有驗證。任何知道網址的人都能呼叫。
+位址是公開的（寫死在前端當預設值），所以有四道保護：
 
-保護只有兩道主機白名單：`?url=` 限 Threads 網域，`?img=` 限
-`cdninstagram.com` 與 `fbcdn.net`（正則 `/(^|\.)(cdninstagram\.com|fbcdn\.net)$/i`）。
-後者是為了避免這支 Worker 變成任何人都能用的開放圖片代理。
+| 保護 | 內容 |
+| --- | --- |
+| 來源白名單 | 帶 `Origin` 的請求必須來自 `gariber.github.io` 或 localhost，否則 403 `origin_not_allowed`。沒有 `Origin` 的（curl、瀏覽器直接開網址）放行，方便健康檢查與除錯 |
+| 速率限制 | 每 IP 每分鐘 60 次，超過回 429 `rate_limited` 並附 `retry-after: 60` |
+| 貼文主機白名單 | `?url=` 只接受 Threads 網域，否則 400 |
+| 圖片主機白名單 | `?img=` 只接受 `cdninstagram.com` 與 `fbcdn.net`（正則 `/(^|\.)(cdninstagram\.com|fbcdn\.net)$/i`），避免變成開放圖片代理 |
 
-如果要公開分享這個部署位址，rate limit 得另外加。
+CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
+
+**速率限制是盡力而為，不是精確配額。** Worker 無狀態，計數存在單一 isolate
+的記憶體裡，跨 isolate 不共享 —— 擋得住單點狂打，擋不住分散式濫用。
+要精確配額得綁 KV 或 Durable Objects。
 
 ### 圖片尺寸
 

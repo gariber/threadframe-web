@@ -7,6 +7,9 @@
  *
  * 圖片也必須經過這裡轉一手 —— cdninstagram 不給 CORS 標頭，前端若直接
  * 載入，canvas 會被污染（tainted），匯出時 toBlob 會直接丟 SecurityError。
+ *
+ * 位址是公開的（寫死在前端當預設值），所以有兩道保護：
+ * 來源網域白名單，以及每 IP 速率限制。
  */
 
 const CRAWLER_UA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)";
@@ -16,16 +19,58 @@ const POST_HOSTS = new Set(["threads.com", "www.threads.com", "threads.net", "ww
 /** 圖片只放行 Meta 自家的 CDN，否則這支 Worker 會變成任何人都能用的開放代理。 */
 const IMAGE_HOST_RE = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i;
 
-const CORS = {
-  "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET, OPTIONS",
-  "access-control-allow-headers": "content-type",
-};
+/** 只有這些網頁能從瀏覽器呼叫；其他站台嵌入時瀏覽器會直接擋在 CORS。 */
+const ALLOWED_ORIGINS = new Set([
+  "https://gariber.github.io",
+  "http://localhost:4173",
+  "http://localhost:5173",
+  "http://127.0.0.1:4173",
+]);
 
-function json(body, status = 200, extra = {}) {
+const RATE_LIMIT = 60; // 每個 IP 每分鐘的請求上限
+const RATE_WINDOW_MS = 60_000;
+
+/**
+ * 速率限制。Worker 是無狀態的，這份計數只存在單一 isolate 的記憶體裡，
+ * 因此是「盡力而為」而非精確配額 —— 擋得住單點狂打，擋不住分散式濫用。
+ * 綁定 KV（環境變數 RATE）之後會改用 KV 計數，跨 isolate 才會準確。
+ */
+const hits = new Map();
+
+function tooManyRequests(ip) {
+  const now = Date.now();
+
+  // 順手清掉過期的項目，避免長時間執行的 isolate 記憶體一直長大。
+  if (hits.size > 5000) {
+    for (const [key, slot] of hits) if (now > slot.reset) hits.delete(key);
+  }
+
+  const slot = hits.get(ip);
+  if (!slot || now > slot.reset) {
+    hits.set(ip, { count: 1, reset: now + RATE_WINDOW_MS });
+    return false;
+  }
+  slot.count += 1;
+  return slot.count > RATE_LIMIT;
+}
+
+/**
+ * 沒有 Origin 標頭的請求（curl、健康檢查）一律放行並回 `*`；
+ * 有 Origin 的一定是瀏覽器發的，必須在白名單內。
+ */
+function corsFor(origin) {
+  return {
+    "access-control-allow-origin": origin ?? "*",
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    vary: "Origin",
+  };
+}
+
+function json(body, status, cors, extra = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8", ...CORS, ...extra },
+    headers: { "content-type": "application/json; charset=utf-8", ...cors, ...extra },
   });
 }
 
@@ -100,15 +145,15 @@ function collectImages(post) {
   return out.slice(0, 4);
 }
 
-async function handlePost(target) {
+async function handlePost(target, cors) {
   let parsed;
   try {
     parsed = new URL(target);
   } catch {
-    return json({ error: "bad_url", message: "這不是一個網址" }, 400);
+    return json({ error: "bad_url", message: "這不是一個網址" }, 400, cors);
   }
   if (!POST_HOSTS.has(parsed.hostname)) {
-    return json({ error: "not_threads", message: "只接受 Threads 的貼文連結" }, 400);
+    return json({ error: "not_threads", message: "只接受 Threads 的貼文連結" }, 400, cors);
   }
 
   // Threads 偶爾會短暫限流或回傳沒有內嵌資料的精簡頁面，重試幾次就會拿到。
@@ -152,6 +197,7 @@ async function handlePost(target) {
           message: "Threads 這次沒有回應（試了 3 次）。通常是暫時限流，稍等一下再按一次就好。",
         },
         502,
+        cors,
       );
     }
     // 鎖帳號、已刪除，或 Threads 換了頁面結構時會走到這裡。
@@ -161,6 +207,7 @@ async function handlePost(target) {
         message: "讀不到這則貼文。可能是私人帳號、已刪除，或 Threads 改了頁面結構。",
       },
       404,
+      cors,
     );
   }
 
@@ -181,19 +228,20 @@ async function handlePost(target) {
       images: collectImages(post),
     },
     200,
+    cors,
     { "cache-control": "public, max-age=300" },
   );
 }
 
-async function handleImage(target) {
+async function handleImage(target, cors) {
   let parsed;
   try {
     parsed = new URL(target);
   } catch {
-    return json({ error: "bad_url" }, 400);
+    return json({ error: "bad_url" }, 400, cors);
   }
   if (!IMAGE_HOST_RE.test(parsed.hostname)) {
-    return json({ error: "host_not_allowed" }, 403);
+    return json({ error: "host_not_allowed" }, 403, cors);
   }
 
   const upstream = await fetch(parsed.toString(), {
@@ -201,9 +249,9 @@ async function handleImage(target) {
     // 圖片內容不會變，放心讓邊緣快取久一點。
     cf: { cacheTtl: 86400, cacheEverything: true },
   });
-  if (!upstream.ok) return json({ error: "upstream", status: upstream.status }, 502);
+  if (!upstream.ok) return json({ error: "upstream", status: upstream.status }, 502, cors);
 
-  const headers = new Headers(CORS);
+  const headers = new Headers(cors);
   headers.set("content-type", upstream.headers.get("content-type") ?? "image/jpeg");
   headers.set("cache-control", "public, max-age=86400");
   return new Response(upstream.body, { headers });
@@ -211,16 +259,35 @@ async function handleImage(target) {
 
 export default {
   async fetch(request) {
-    if (request.method === "OPTIONS") return new Response(null, { headers: CORS });
-    if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405);
+    const origin = request.headers.get("origin");
+
+    // 有 Origin 就一定是瀏覽器發的，必須在白名單內；
+    // 沒有 Origin 的（curl、瀏覽器直接開網址）放行，方便健康檢查與除錯。
+    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+      return json({ error: "origin_not_allowed" }, 403, corsFor(null));
+    }
+
+    const cors = corsFor(origin);
+    if (request.method === "OPTIONS") return new Response(null, { headers: cors });
+    if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
+
+    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+    if (tooManyRequests(ip)) {
+      return json(
+        { error: "rate_limited", message: "請求太頻繁，請稍後再試。" },
+        429,
+        cors,
+        { "retry-after": "60" },
+      );
+    }
 
     const url = new URL(request.url);
     const img = url.searchParams.get("img");
-    if (img) return handleImage(img);
+    if (img) return handleImage(img, cors);
 
     const target = url.searchParams.get("url");
-    if (target) return handlePost(target);
+    if (target) return handlePost(target, cors);
 
-    return json({ ok: true, usage: "?url=<threads 貼文網址> 或 ?img=<圖片網址>" });
+    return json({ ok: true, usage: "?url=<threads 貼文網址> 或 ?img=<圖片網址>" }, 200, cors);
   },
 };
