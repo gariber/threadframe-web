@@ -196,7 +196,11 @@ async function handlePost(target, cors) {
 
   // Threads 偶爾會短暫限流或回傳沒有內嵌資料的精簡頁面，重試幾次就會拿到。
   // 一次失敗就放棄的話，使用者看到的會是隨機失敗。
-  let post = null;
+  // exact = 短碼對得上的那則；fallback = 頁面裡的第一則（原貼文）。
+  // 兩者分開存：短碼對不上時要再試一次，而不是拿原貼文交差 ——
+  // Threads 偶爾會回傳不含該留言的頁面變體，直接接受就會靜靜地給錯貼文。
+  let exact = null;
+  let fallback = null;
   let finalUrl = parsed.toString();
   let lastStatus = 0;
 
@@ -219,14 +223,23 @@ async function handlePost(target, cors) {
     if (!upstream.ok) continue;
 
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
-    const found = findPost(await upstream.text(), codeFromUrl(upstream.url));
-    if (found) {
-      post = found;
+    const wantedCode = codeFromUrl(upstream.url);
+    const found = findPost(await upstream.text(), wantedCode);
+    if (!found) continue;
+
+    if (!wantedCode || found.code === wantedCode) {
+      exact = found;
       finalUrl = upstream.url;
       break;
     }
+    // 這次的頁面沒有目標那則，先記著再試一次。
+    if (!fallback) {
+      fallback = found;
+      finalUrl = upstream.url;
+    }
   }
 
+  const post = exact ?? fallback;
   if (!post) {
     if (lastStatus && lastStatus !== 200) {
       return json(
