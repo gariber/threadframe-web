@@ -38,6 +38,13 @@ export function isUsingDefaultWorker(): boolean {
 }
 
 /**
+ * app 自己的網域。底下沒有任何一個子網域是取文服務 —— app 搬過家
+ * （threadsframe.gariber.studio），只比對當下這一個位址的話，貼上舊網址
+ * 就會被存成取文位址。與 Worker 的來源白名單同一套範圍。
+ */
+const SITE_DOMAIN_RE = /(^|\.)gariber\.studio$/i;
+
+/**
  * 檢查一個值能不能當取文位址，不行就回傳原因。
  *
  * 特別要擋掉 Threads 連結：使用者很容易把貼文網址貼進設定欄，
@@ -60,8 +67,13 @@ export function validateWorkerUrl(value: string): string | null {
   if (/(^|\.)threads\.(com|net)$/i.test(parsed.hostname)) {
     return "這是一條 Threads 連結，不是取文服務的位址 —— 貼文連結要貼在上面的輸入框。";
   }
-  if (parsed.hostname === location.hostname) {
+  // host 而不是 hostname —— hostname 不含 port，本機開發時 app 在 localhost:5173、
+  // Worker 在 localhost:8787，比 hostname 會把那支本機 Worker 誤判成本站網址。
+  if (parsed.host === location.host) {
     return "這是本站網址，不是取文服務的位址。";
+  }
+  if (SITE_DOMAIN_RE.test(parsed.hostname)) {
+    return "這是 app 自己的網域，不是取文服務的位址。";
   }
   return null;
 }

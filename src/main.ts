@@ -136,7 +136,15 @@ function setStatus(kind: "hint" | "err" | "none", text = ""): void {
   status.textContent = text;
 }
 
+/**
+ * 每次自動帶入都會 +1。圖片是慢慢補上的，使用者在載入途中換帶入另一則貼文時，
+ * 上一輪的 then 會晚一步回來把新貼文的圖蓋掉 —— 代數對不上就直接丟棄。
+ */
+let fetchGeneration = 0;
+
 async function fillFromFetched(data: FetchedPost): Promise<void> {
+  const generation = ++fetchGeneration;
+
   post.name = data.name || data.username;
   post.handle = data.username;
   post.text = data.text;
@@ -146,7 +154,22 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   post.reposts = formatCount(data.reposts);
   post.shares = formatCount(data.shares);
   post.url = data.url;
+
+  // 只留有內文的留言：Worker 會把貼圖或純圖片的回覆也算進來，
+  // 那些在卡片上只會是一個空白列。展示幾則是使用者的選擇（style.commentLimit），
+  // 這裡只負責把素材備齊。
+  const fetched = (data.comments ?? []).filter((c) => c.text.trim()).slice(0, MAX_COMMENTS);
+  post.comments = fetched.map((c) => ({
+    name: c.name || c.username,
+    text: c.text,
+    likes: formatCount(c.likes),
+    avatar: null,
+  }));
+  // 頭像稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
+  assets.commentAvatars = post.comments.map(() => null);
+
   syncFields();
+  paintComments();
   draw();
 
   // 圖片比文字慢，先讓卡片出現再逐步補上，不要整段卡著等。
@@ -154,6 +177,7 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   const avatarJob = data.avatar
     ? urlToImage(proxyImage(data.avatar))
         .then((img) => {
+          if (generation !== fetchGeneration) return;
           assets.avatar = img;
           draw();
         })
@@ -165,6 +189,7 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   const imagesJob =
     data.images.length > 0
       ? Promise.allSettled(data.images.map((u) => urlToImage(proxyImage(u)))).then((loaded) => {
+          if (generation !== fetchGeneration) return;
           assets.images = loaded
             .filter((r): r is PromiseFulfilledResult<HTMLImageElement> => r.status === "fulfilled")
             .map((r) => r.value);
@@ -173,7 +198,21 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
         })
       : Promise.resolve();
 
-  await Promise.all([avatarJob, imagesJob]);
+  const commentAvatarJobs = fetched.map((c, index) =>
+    c.avatar
+      ? urlToImage(proxyImage(c.avatar))
+          .then((img) => {
+            if (generation !== fetchGeneration) return;
+            assets.commentAvatars[index] = img;
+            draw();
+          })
+          .catch(() => {
+            // 同上：載不到就用名稱首字的圓形底。
+          })
+      : Promise.resolve(),
+  );
+
+  await Promise.all([avatarJob, imagesJob, ...commentAvatarJobs]);
 }
 
 async function autoFill(url: string): Promise<void> {
@@ -529,7 +568,7 @@ function paintComments(): void {
   addComment.disabled = post.comments.length >= MAX_COMMENTS;
   $("comment-hint").textContent =
     post.comments.length >= MAX_COMMENTS
-      ? `最多 ${MAX_COMMENTS} 則。留言同樣要自己貼上 —— 網頁讀不到 Threads 的留言串。`
+      ? `最多 ${MAX_COMMENTS} 則。自動帶入會先填上貼文底下的留言，你可以直接改寫或刪掉。`
       : `最多 ${MAX_COMMENTS} 則，依照你排列的順序顯示。`;
 }
 

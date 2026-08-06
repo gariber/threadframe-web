@@ -63,12 +63,24 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
   "replies": 9,               // number | null
   "reposts": 12,              // number | null
   "shares": 18,               // number | null
-  "images": ["https://…"]     // string[]，最多 4 張，原始網址（同樣需經 ?img= 代理）
+  "images": ["https://…"],    // string[]，最多 4 張，原始網址（同樣需經 ?img= 代理）
+  "comments": [               // 最多 6 則，依頁面順序（見「解析方式」）
+    {
+      "username": "alice",    // string
+      "name": "渢乙",          // string，顯示名稱；沒有時退回 username
+      "avatar": "https://…",  // string | null，同樣需經 ?img= 代理
+      "text": "推",            // string
+      "likes": 12             // number | null
+    }
+  ]
 }
 ```
 
 數值欄位在來源缺該欄時為 `null`，不是 `0` —— 呼叫端才分得出「沒有這個數字」
 與「數字是零」。`text` 保留原始換行與空行。
+
+`comments` 是後加的欄位，**舊版部署不會回傳它**，呼叫端要能接受它不存在
+（前端的型別標成選用）。留言也不保證抓得到：拿到不含留言的頁面變體時會是空陣列。
 
 ### `GET /?img=<圖片網址>`
 
@@ -153,9 +165,19 @@ CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
 
 ### 解析方式
 
-在 HTML 裡掃 `"post":{`，用括號配對切出完整 JSON 物件後 `JSON.parse`，
-取第一個同時具備 `user.username` 與 `caption` 的物件（留言的 post 物件
-排在主貼文之後）。解析成本實測約 10ms，不是瓶頸。
+分兩步，解析成本實測約 10ms，不是瓶頸。
+
+`scanPosts`：在 HTML 裡掃 `"post":{`，用括號配對切出完整 JSON 物件後
+`JSON.parse`，收下同時具備 `user.username` 與 `caption` 的物件，維持頁面順序，
+以 `code` 去重（同一則會在討論串本體、預載資料、推薦區各嵌一份），最多 60 個。
+
+`splitThread`：**主貼文永遠排在最前面、留言排在後面**，而物件本身沒有
+`parent` / `reply` 之類的欄位可用 —— 順序是唯一的線索。因此比對網址短碼找出
+主體，排在它後面的全部視為它的留言；短碼對不上時退回第一個並回報
+`exact: false`，由外層決定要不要重試（見「重試」）。
+
+貼留言的連結時，主體是那則留言，`comments` 則是它後面的回覆 —— 不是原 PO
+底下的其他留言。
 
 欄位對應：
 
@@ -167,6 +189,9 @@ CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
 | `shares` | `text_post_app_info.reshare_count` |
 | `text` | `post.caption.text` |
 | `takenAt` | `post.taken_at` |
+| `comments[].name` | `user.full_name` ?? `user.username` |
+| `comments[].avatar` | `user.profile_pic_url` |
+| `comments[].likes` | `post.like_count` |
 
 ### 使用的 UA
 
@@ -201,8 +226,11 @@ Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
 ## 已知限制
 
 - **讀不到私人帳號的貼文**。爬蟲 UA 取得的內容與未登入者看到的公開內容相同。
-- **依賴 Meta 的頁面結構**。Threads 改版時 `findPost` 會失效，回 `404 not_found`，
+- **依賴 Meta 的頁面結構**。Threads 改版時 `scanPosts` 會失效，回 `404 not_found`，
   前端提示改用手動貼上，不會整個壞掉。
-- **留言抓不到**。內嵌 JSON 裡有留言結構，但目前沒有解析；前端的留言一律手動輸入。
+- **留言只能靠順序判斷**。內嵌的 post 物件沒有指回父貼文的欄位，只能用「排在主體
+  之後」當作留言。Threads 若改變區塊順序，帶出來的留言就可能不是那一則的；
+  前端的留言欄位一律可以改寫或刪除。
+- **留言不含巢狀回覆的層級**。回覆的回覆一樣攤平在同一串裡，看不出縮排關係。
 - **影片只取封面圖**。輪播中的影片項目會取 `image_versions2` 的封面，不取影片本身。
 - **不再是「資料完全不離開裝置」**。啟用後貼文連結會送到這支服務。

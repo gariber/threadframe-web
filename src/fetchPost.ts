@@ -1,5 +1,13 @@
 import { getWorkerUrl } from "./config";
 
+export type FetchedComment = {
+  username: string;
+  name: string;
+  avatar: string | null;
+  text: string;
+  likes: number | null;
+};
+
 export type FetchedPost = {
   url: string;
   username: string;
@@ -12,6 +20,8 @@ export type FetchedPost = {
   reposts: number | null;
   shares: number | null;
   images: string[];
+  /** 選用：舊版 Worker 不會回這個欄位，呼叫端要能接受它不存在。 */
+  comments?: FetchedComment[];
 };
 
 export class FetchPostError extends Error {}
@@ -53,9 +63,12 @@ export async function fetchThreadsPost(postUrl: string): Promise<FetchedPost> {
 /**
  * 統計數字縮寫成 1.9K / 321.7K / 1.2M，與分享圖上的慣例一致。
  * 只用在自動帶入的數字；使用者自己打的值不會被改寫。
+ *
+ * 零一律留白 —— Threads 自己就不顯示零，畫成「♥ 0」只是雜訊。
+ * 使用者想標出零的話，自己在欄位裡打上去仍然會照畫。
  */
 export function formatCount(value: number | null): string {
-  if (value === null || Number.isNaN(value)) return "";
+  if (value === null || Number.isNaN(value) || value === 0) return "";
   const trim = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1));
   // 先算成 K，四捨五入後若已經滿一千才進位到 M，避免 999999 變成 "1000K"。
   const k = Math.round(value / 100) / 10;
