@@ -114,20 +114,24 @@ function codeFromUrl(url) {
   return m ? m[1] : null;
 }
 
-/** 一頁裡最多掃這麼多個 post 物件就停手，避免長討論串拖慢回應。 */
+/** 一頁裡最多收這麼多個 post 物件就停手，避免長討論串拖慢回應。 */
 const MAX_SCAN = 60;
 
-/**
- * 頁面會把整串討論都嵌進來，而且**原貼文永遠排在最前面、留言排在後面**。
- * 因此不能直接取第一個 —— 貼留言的連結時會拿到原 PO 的文。
- * 改成比對網址裡的短碼，找不到才退回第一個（例如網址沒有 /post/ 片段）。
- */
-function findPost(html, wantedCode) {
-  let fallback = null;
-  let from = 0;
-  let scanned = 0;
+/** 回應裡最多帶幾則留言。前端最多展示 3 則，多給一點讓使用者有得挑。 */
+const MAX_COMMENTS = 6;
 
-  while (scanned < MAX_SCAN) {
+/**
+ * 掃出頁面裡所有的 post 物件，維持頁面出現的順序。
+ *
+ * 同一則貼文會在頁面的不同區塊各嵌一份（討論串本體、預載資料、推薦區），
+ * 因此以 `code` 去重 —— 不去重的話留言清單會出現整排重複。
+ */
+function scanPosts(html) {
+  const posts = [];
+  const seen = new Set();
+  let from = 0;
+
+  while (posts.length < MAX_SCAN) {
     const i = html.indexOf('"post":{', from);
     if (i === -1) break;
     from = i + 8;
@@ -144,16 +148,44 @@ function findPost(html, wantedCode) {
     }
     if (!obj?.user?.username || obj?.caption === undefined) continue;
 
-    scanned++;
-    if (wantedCode && obj.code === wantedCode) return obj;
-    if (!fallback) {
-      fallback = obj;
-      // 沒有短碼可比對時就是舊行為：取第一個。
-      if (!wantedCode) return fallback;
+    if (obj.code) {
+      if (seen.has(obj.code)) continue;
+      seen.add(obj.code);
     }
+    posts.push(obj);
   }
 
-  return fallback;
+  return posts;
+}
+
+/**
+ * 把掃到的貼文切成「主體」與「它的留言」。
+ *
+ * 頁面會把整串討論都嵌進來，而且**主貼文永遠排在最前面、留言排在後面**。
+ * 因此不能直接取第一個 —— 貼留言的連結時會拿到原 PO 的文。
+ * 改成比對網址裡的短碼，找不到才退回第一個（例如網址沒有 /post/ 片段）。
+ *
+ * 留言只能靠順序判斷：物件本身沒有 parent / reply 之類的欄位可用，
+ * 排在主體後面的就是它的留言。
+ */
+function splitThread(posts, wantedCode) {
+  if (posts.length === 0) return { main: null, comments: [], exact: false };
+
+  const at = wantedCode ? posts.findIndex((p) => p.code === wantedCode) : 0;
+  const index = at === -1 ? 0 : at;
+
+  return { main: posts[index], comments: posts.slice(index + 1), exact: at !== -1 };
+}
+
+/** 留言只留下畫進卡片會用到的欄位。 */
+function toComment(post) {
+  return {
+    username: post.user?.username ?? "",
+    name: post.user?.full_name || post.user?.username || "",
+    avatar: post.user?.profile_pic_url ?? null,
+    text: post.caption?.text ?? "",
+    likes: post.like_count ?? null,
+  };
 }
 
 /**
@@ -201,6 +233,8 @@ async function handlePost(target, cors) {
   // Threads 偶爾會回傳不含該留言的頁面變體，直接接受就會靜靜地給錯貼文。
   let exact = null;
   let fallback = null;
+  let exactComments = [];
+  let fallbackComments = [];
   let finalUrl = parsed.toString();
   let lastStatus = 0;
 
@@ -224,22 +258,25 @@ async function handlePost(target, cors) {
 
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
     const wantedCode = codeFromUrl(upstream.url);
-    const found = findPost(await upstream.text(), wantedCode);
-    if (!found) continue;
+    const found = splitThread(scanPosts(await upstream.text()), wantedCode);
+    if (!found.main) continue;
 
-    if (!wantedCode || found.code === wantedCode) {
-      exact = found;
+    if (found.exact) {
+      exact = found.main;
+      exactComments = found.comments;
       finalUrl = upstream.url;
       break;
     }
     // 這次的頁面沒有目標那則，先記著再試一次。
     if (!fallback) {
-      fallback = found;
+      fallback = found.main;
+      fallbackComments = found.comments;
       finalUrl = upstream.url;
     }
   }
 
   const post = exact ?? fallback;
+  const comments = exact ? exactComments : fallbackComments;
   if (!post) {
     if (lastStatus && lastStatus !== 200) {
       return json(
@@ -278,6 +315,7 @@ async function handlePost(target, cors) {
       reposts: info.repost_count ?? null,
       shares: info.reshare_count ?? null,
       images: collectImages(post),
+      comments: comments.slice(0, MAX_COMMENTS).map(toComment),
     },
     200,
     cors,
