@@ -19,13 +19,24 @@ const POST_HOSTS = new Set(["threads.com", "www.threads.com", "threads.net", "ww
 /** 圖片只放行 Meta 自家的 CDN，否則這支 Worker 會變成任何人都能用的開放代理。 */
 const IMAGE_HOST_RE = /(^|\.)(cdninstagram\.com|fbcdn\.net)$/i;
 
-/** 只有這些網頁能從瀏覽器呼叫；其他站台嵌入時瀏覽器會直接擋在 CORS。 */
+/**
+ * 只有這些網頁能從瀏覽器呼叫；其他站台嵌入時瀏覽器會直接擋在 CORS。
+ *
+ * gariber.studio 底下一律放行 —— app 已經搬到 threadsframe.gariber.studio，
+ * 白名單若只寫死單一位址，日後換子網域就會被自己擋掉且不易察覺。
+ */
+const ALLOWED_ORIGIN_RE = /^https:\/\/([a-z0-9-]+\.)?gariber\.studio$/i;
+
 const ALLOWED_ORIGINS = new Set([
   "https://gariber.github.io",
   "http://localhost:4173",
   "http://localhost:5173",
   "http://127.0.0.1:4173",
 ]);
+
+function originAllowed(origin) {
+  return ALLOWED_ORIGINS.has(origin) || ALLOWED_ORIGIN_RE.test(origin);
+}
 
 const RATE_LIMIT = 60; // 每個 IP 每分鐘的請求上限
 const RATE_WINDOW_MS = 60_000;
@@ -291,7 +302,7 @@ export default {
 
     // 有 Origin 就一定是瀏覽器發的，必須在白名單內；
     // 沒有 Origin 的（curl、瀏覽器直接開網址）放行，方便健康檢查與除錯。
-    if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    if (origin && !originAllowed(origin)) {
       return json({ error: "origin_not_allowed" }, 403, corsFor(null));
     }
 
