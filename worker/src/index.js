@@ -97,25 +97,52 @@ function sliceObject(s, start) {
   return null;
 }
 
+/** 從貼文網址取出短碼，例如 /@user/post/DbgSoa2AXY_ → DbgSoa2AXY_ */
+function codeFromUrl(url) {
+  const m = /\/post\/([A-Za-z0-9_-]+)/.exec(url);
+  return m ? m[1] : null;
+}
+
+/** 一頁裡最多掃這麼多個 post 物件就停手，避免長討論串拖慢回應。 */
+const MAX_SCAN = 60;
+
 /**
- * 頁面裡會嵌入很多段 JSON，第一個同時具備 user.username 與 caption 的
- * post 物件就是主貼文（留言的 post 物件排在它後面）。
+ * 頁面會把整串討論都嵌進來，而且**原貼文永遠排在最前面、留言排在後面**。
+ * 因此不能直接取第一個 —— 貼留言的連結時會拿到原 PO 的文。
+ * 改成比對網址裡的短碼，找不到才退回第一個（例如網址沒有 /post/ 片段）。
  */
-function findPost(html) {
+function findPost(html, wantedCode) {
+  let fallback = null;
   let from = 0;
-  for (;;) {
+  let scanned = 0;
+
+  while (scanned < MAX_SCAN) {
     const i = html.indexOf('"post":{', from);
-    if (i === -1) return null;
+    if (i === -1) break;
     from = i + 8;
+
     const raw = sliceObject(html, i + 7);
     if (!raw) continue;
+
+    let obj;
     try {
-      const obj = JSON.parse(raw);
-      if (obj?.user?.username && obj?.caption !== undefined) return obj;
+      obj = JSON.parse(raw);
     } catch {
       // 這一段被截斷或不是合法 JSON，換下一個候選。
+      continue;
+    }
+    if (!obj?.user?.username || obj?.caption === undefined) continue;
+
+    scanned++;
+    if (wantedCode && obj.code === wantedCode) return obj;
+    if (!fallback) {
+      fallback = obj;
+      // 沒有短碼可比對時就是舊行為：取第一個。
+      if (!wantedCode) return fallback;
     }
   }
+
+  return fallback;
 }
 
 /**
@@ -180,7 +207,8 @@ async function handlePost(target, cors) {
     lastStatus = upstream.status;
     if (!upstream.ok) continue;
 
-    const found = findPost(await upstream.text());
+    // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
+    const found = findPost(await upstream.text(), codeFromUrl(upstream.url));
     if (found) {
       post = found;
       finalUrl = upstream.url;
