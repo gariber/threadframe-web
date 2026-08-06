@@ -52,7 +52,10 @@ https://<你的 app 網址>/?worker=https://threadframe-fetch.<你的帳號>.wor
 | `GET /?img=<圖片網址>` | 轉送圖片並補上 CORS 標頭 |
 
 貼文 JSON 的欄位：`url`、`username`、`name`、`verified`、`avatar`、`text`、`takenAt`、
-`likes`、`replies`、`reposts`、`shares`、`images`。
+`likes`、`replies`、`reposts`、`shares`、`images`、`comments`。
+
+`comments` 是後加的欄位，**舊版部署不會回傳它** —— 前端把它當選用欄位，
+沒有就退回留言手動輸入。完整規格見 [API.md](API.md)。
 
 ## 限制與注意事項
 
