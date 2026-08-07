@@ -8,6 +8,12 @@
       name="description"
       content="把 Threads 貼文排版成可下載的分享圖。全部在你的瀏覽器裡完成，不上傳任何資料。"
     />
+    <!--
+      取文服務在另一個網域，貼文 JSON 與所有圖片都走它。先把 DNS 與 TLS 談好，
+      按下「帶入卡片」時就少一趟來回 —— 手機的行動網路上這一趟常要 200ms 以上。
+      使用者改用自訂位址時這條連線閒置後會自己關掉，沒有副作用。
+    -->
+    <link rel="preconnect" href="https://threadframe-fetch.zhouwen9194.workers.dev" crossorigin />
     <link rel="manifest" href="./manifest.webmanifest" />
     <meta name="theme-color" content="#f3efe8" />
     <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#17120f" />
@@ -109,6 +115,7 @@
               <option value="1">1 則</option>
               <option value="2">2 則</option>
               <option value="3">3 則</option>
+              <option value="4">4 則</option>
             </select>
           </label>
           <div id="comments"></div>

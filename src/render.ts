@@ -17,6 +17,8 @@ export type Assets = {
   bg: HTMLImageElement | null;
   /** 與 post.comments 同索引；沒上傳頭像的位置放 null。 */
   commentAvatars: (HTMLImageElement | null)[];
+  /** 同上，留言自己帶的附圖。 */
+  commentImages: (HTMLImageElement | null)[];
 };
 
 const CJK_RE = /[ᄀ-ᇿ⺀-鿿　-〿가-힯豈-﫿＀-￯]/;
@@ -195,48 +197,75 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
   return out;
 }
 
+/*
+ * 四個統計圖示都畫成**外框線**，與 Threads 上的一致 ——
+ * 那邊只有「已按讚」時才會是實心紅色，卡片是靜態的快照，一律用未按讚的樣子。
+ *
+ * 每個 path 都畫在同一個 s×s 的方框裡，而且**四個的實際筆畫都要撐滿
+ * 大約 x 0.08–0.92、y 0.10–0.90 這個範圍**。否則同樣的 s 畫出來，
+ * 佔框比例大的（泡泡）看起來就是比佔框比例小的（轉發）大一號，
+ * 排成一列時大小參差不齊。改任何一個 path 都要順手檢查這件事。
+ */
+
+/**
+ * 讚：愛心外框。
+ *
+ * 控制點刻意落在方框外（負值、超過 1）—— 貝茲曲線不會通過控制點，
+ * 把控制點放在 0–1 之內畫出來的愛心只有方框的三分之二大，
+ * 排在其他三個圖示旁邊會明顯小一號。這些值是量出來的，不是估的。
+ */
 function heartPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  const cx = x + s / 2;
   ctx.beginPath();
-  ctx.moveTo(x + s / 2, y + s * 0.92);
-  ctx.bezierCurveTo(x - s * 0.08, y + s * 0.55, x + s * 0.06, y + s * 0.05, x + s / 2, y + s * 0.32);
-  ctx.bezierCurveTo(x + s * 0.94, y + s * 0.05, x + s * 1.08, y + s * 0.55, x + s / 2, y + s * 0.92);
+  ctx.moveTo(cx, y + s * 0.9);
+  ctx.bezierCurveTo(x - s * 0.08, y + s * 0.49, x - s * 0.03, y - s * 0.06, cx, y + s * 0.18);
+  ctx.bezierCurveTo(x + s * 1.03, y - s * 0.06, x + s * 1.08, y + s * 0.49, cx, y + s * 0.9);
   ctx.closePath();
 }
 
+/** 留言：對話泡泡，左下角帶一個小尾巴。 */
 function bubblePath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.ellipse(x + s / 2, y + s * 0.45, s * 0.46, s * 0.38, 0, 0, Math.PI * 2);
-  ctx.moveTo(x + s * 0.3, y + s * 0.78);
-  ctx.lineTo(x + s * 0.22, y + s * 0.97);
-  ctx.lineTo(x + s * 0.46, y + s * 0.8);
-  ctx.closePath();
+  // 尾巴要算進總高度，泡泡本身因此比其他圖示的外圍略小一點。
+  ctx.ellipse(x + s / 2, y + s * 0.44, s * 0.42, s * 0.34, 0, 0, Math.PI * 2);
+  // 尾巴獨立成一段開放路徑：跟泡泡連在同一個 path 裡描邊會多出一條穿過泡泡的線。
+  ctx.moveTo(x + s * 0.3, y + s * 0.72);
+  ctx.lineTo(x + s * 0.19, y + s * 0.9);
+  ctx.lineTo(x + s * 0.44, y + s * 0.76);
 }
 
 /**
- * 分享：紙飛機外框。左緣往內凹的那個缺口是關鍵 —— 少了它就只是一個
- * 實心三角形，看起來會像定位圖釘而不是紙飛機。
+ * 分享：紙飛機外框。中間那條折線是關鍵 —— 少了它就只是一個空心三角形，
+ * 看起來會像播放鍵而不是紙飛機。
  */
 function sendPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.moveTo(x + s * 0.08, y + s * 0.14);
-  ctx.lineTo(x + s * 0.94, y + s * 0.5);
-  ctx.lineTo(x + s * 0.08, y + s * 0.86);
-  ctx.lineTo(x + s * 0.3, y + s * 0.5);
+  ctx.moveTo(x + s * 0.92, y + s * 0.1);
+  ctx.lineTo(x + s * 0.08, y + s * 0.44);
+  ctx.lineTo(x + s * 0.43, y + s * 0.57);
+  ctx.lineTo(x + s * 0.56, y + s * 0.9);
   ctx.closePath();
+  ctx.moveTo(x + s * 0.92, y + s * 0.1);
+  ctx.lineTo(x + s * 0.43, y + s * 0.57);
 }
 
+/** 轉發：上下兩支反向的箭頭，各自在末端轉一個直角。 */
 function repeatPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.moveTo(x + s * 0.12, y + s * 0.36);
-  ctx.lineTo(x + s * 0.76, y + s * 0.36);
-  ctx.moveTo(x + s * 0.6, y + s * 0.2);
-  ctx.lineTo(x + s * 0.78, y + s * 0.36);
-  ctx.lineTo(x + s * 0.6, y + s * 0.52);
-  ctx.moveTo(x + s * 0.88, y + s * 0.66);
-  ctx.lineTo(x + s * 0.24, y + s * 0.66);
-  ctx.moveTo(x + s * 0.4, y + s * 0.5);
-  ctx.lineTo(x + s * 0.22, y + s * 0.66);
-  ctx.lineTo(x + s * 0.4, y + s * 0.82);
+  // 上排：往右，右端向下收
+  ctx.moveTo(x + s * 0.1, y + s * 0.52);
+  ctx.lineTo(x + s * 0.1, y + s * 0.26);
+  ctx.lineTo(x + s * 0.8, y + s * 0.26);
+  ctx.moveTo(x + s * 0.64, y + s * 0.1);
+  ctx.lineTo(x + s * 0.82, y + s * 0.26);
+  ctx.lineTo(x + s * 0.64, y + s * 0.42);
+  // 下排：往左，左端向上收
+  ctx.moveTo(x + s * 0.9, y + s * 0.48);
+  ctx.lineTo(x + s * 0.9, y + s * 0.74);
+  ctx.lineTo(x + s * 0.2, y + s * 0.74);
+  ctx.moveTo(x + s * 0.36, y + s * 0.9);
+  ctx.lineTo(x + s * 0.18, y + s * 0.74);
+  ctx.lineTo(x + s * 0.36, y + s * 0.58);
 }
 
 /** 圓形頭像：有圖就裁圓，沒圖就用名稱首字，遮蔽身分時只留素色圓。 */
@@ -362,6 +391,7 @@ function layout(
     : [];
   if (images.length > 0) {
     const corner = Math.round(size * 0.4);
+    const gap = Math.round(size * 0.2);
     let height: number;
     let cells: { x: number; y: number; w: number; h: number }[];
     let single = false;
@@ -373,41 +403,46 @@ function layout(
       cells = [{ x: 0, y: 0, w: contentW, h: height }];
       single = true;
     } else {
-      // 多張排成等大的方格且彼此不留間距，與 Threads 上的原始排列一致。
-      const cols = images.length === 3 ? 3 : 2;
-      const rows = Math.ceil(images.length / cols);
-      const w = contentW / cols;
-      height = rows * w;
-      cells = images.map((_, i) => ({
-        x: (i % cols) * w,
-        y: Math.floor(i / cols) * w,
-        w,
-        h: w,
-      }));
+      // 多張一律排成兩欄的方格，格與格之間留一道細縫（與 Threads 上一致）。
+      const w = (contentW - gap) / 2;
+      const step = w + gap;
+
+      if (images.length === 3) {
+        // 兩欄放不下三張，第三張獨佔整個下排 —— 讓右下角空一格會很像壞掉。
+        cells = [
+          { x: 0, y: 0, w, h: w },
+          { x: step, y: 0, w, h: w },
+          { x: 0, y: step, w: contentW, h: w },
+        ];
+        height = w * 2 + gap;
+      } else {
+        const rows = Math.ceil(images.length / 2);
+        cells = images.map((_, i) => ({
+          x: (i % 2) * step,
+          y: Math.floor(i / 2) * step,
+          w,
+          h: w,
+        }));
+        height = rows * w + (rows - 1) * gap;
+      }
     }
 
     blocks.push({
       height,
       draw: (c, top) => {
-        // 圓角只套在整塊外緣，格與格之間保持齊平。
-        c.save();
-        roundRect(c, 0, top, contentW, height, corner);
-        c.clip();
-        c.fillStyle = softInk(ink, 0.06);
-        c.fillRect(0, top, contentW, height);
-
+        // 每一格各自裁圓角。多張之間有間距，整塊套一個外框圓角是看不出來的。
         images.forEach((img, i) => {
           const cell = cells[i];
           c.save();
-          c.beginPath();
-          c.rect(cell.x, top + cell.y, cell.w, cell.h);
+          roundRect(c, cell.x, top + cell.y, cell.w, cell.h, single ? corner : corner * 0.75);
           c.clip();
+          c.fillStyle = softInk(ink, 0.06);
+          c.fillRect(cell.x, top + cell.y, cell.w, cell.h);
           // 方格模式填滿格子，單張維持完整畫面。
           const place = single ? drawContain : drawCover;
           place(c, img, cell.x, top + cell.y, cell.w, cell.h);
           c.restore();
         });
-        c.restore();
       },
     });
   }
@@ -460,6 +495,22 @@ function layout(
         // 先量出整列寬度才能置中。
         c.font = font(valueSize, 400);
         const dotW = c.measureText("·").width;
+
+        /*
+         * 數字改用基線定位，而不是 textBaseline="middle"。
+         *
+         * "middle" 對齊的是字型 em 框的中線，那條線會把上伸部與下伸部一起算進去；
+         * 阿拉伯數字沒有下伸部，全部落在基線之上，所以用 "middle" 畫出來的數字
+         * 會整體偏低，跟旁邊置中的圖示對不齊 —— 差距小但一整列看得很清楚。
+         * 改成量數字實際的字身高度，讓字身中線落在 cy 上。
+         *
+         * textBaseline 必須先設成 alphabetic 再量：actualBoundingBoxAscent 是
+         * 相對於「當下的 textBaseline」量的，在 top 之下量會得到接近 0 的值，
+         * 算出來的位移等於沒有位移。
+         */
+        c.textBaseline = "alphabetic";
+        const capH = c.measureText("0").actualBoundingBoxAscent;
+        const textBase = cy + capH / 2;
         const rowW = stats.reduce(
           (sum, [, value], index) =>
             sum +
@@ -474,31 +525,30 @@ function layout(
 
         stats.forEach(([icon, value], index) => {
           if (index > 0) {
-            // 項目之間的分隔點
+            // 項目之間的分隔點。這一顆是標點，維持 middle 才會落在行中央。
             c.textBaseline = "middle";
             c.fillStyle = softInk(ink, 0.35);
             c.font = font(valueSize, 400);
             c.fillText("·", x, cy);
+            c.textBaseline = "alphabetic";
             x += c.measureText("·").width + dotGap;
           }
 
           c.save();
           c.strokeStyle = softInk(ink, 0.6);
-          c.fillStyle = softInk(ink, 0.6);
-          c.lineWidth = Math.max(2, size * 0.06);
+          c.lineWidth = Math.max(2, size * 0.055);
           c.lineJoin = "round";
           c.lineCap = "round";
-          icon(c, x, rowTop, iconSize);
-          // 轉發與分享是線條圖示，讚與留言是實心。
-          if (icon === repeatPath || icon === sendPath) c.stroke();
-          else c.fill();
+          // 圖示的方框以 cy 為中心，與數字的字身中線對齊。
+          icon(c, x, cy - iconSize / 2, iconSize);
+          // 四個都描邊，不填色 —— Threads 上只有自己按過的那個才是實心。
+          c.stroke();
           c.restore();
           x += iconSize + iconGap;
 
-          c.textBaseline = "middle";
           c.fillStyle = softInk(ink, 0.6);
           c.font = font(valueSize, 400);
-          c.fillText(value, x, cy);
+          c.fillText(value, x, textBase);
           x += c.measureText(value).width + dotGap;
         });
 
@@ -518,30 +568,67 @@ function layout(
       : [];
 
   if (comments.length > 0) {
-    const avatarSize = Math.round(size * 1.15);
-    const nameSize = Math.round(size * 0.78);
-    const bodySize = Math.round(size * 0.85);
+    const avatarSize = Math.round(size * 1.05);
+    const nameSize = Math.round(size * 0.74);
+    const metaSize = Math.round(size * 0.66);
+    const bodySize = Math.round(size * 0.84);
     const bodyLineH = Math.round(bodySize * 1.5);
-    const indent = avatarSize + Math.round(size * 0.45);
-    const between = Math.round(size * 0.75);
-    const afterRule = Math.round(size * 0.65);
+    const labelSize = Math.round(size * 0.6);
+
+    const afterRule = Math.round(size * 0.6);
+    const afterLabel = Math.round(size * 0.7);
+    const between = Math.round(size * 0.85);
+    const afterHead = Math.round(size * 0.3);
+    const beforeImage = Math.round(size * 0.34);
+
+    // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
+    const imageMaxW = Math.round(contentW * 0.6);
+    const imageMaxH = Math.round(size * 9);
+    const imageCorner = Math.round(size * 0.3);
+
+    const headH = Math.max(avatarSize, nameSize + 2 + metaSize);
 
     ctx.font = font(bodySize, 400);
     const items = comments.map(({ comment, index }) => {
-      const lines = comment.text.trim()
-        ? wrapText(ctx, comment.text.trim(), contentW - indent)
-        : [];
+      const lines = comment.text.trim() ? wrapText(ctx, comment.text.trim(), contentW) : [];
+
+      const image = assets.commentImages[index] ?? null;
+      let imageW = 0;
+      let imageH = 0;
+      if (image && image.naturalWidth > 0) {
+        // 取三者最小：寬度上限、高度上限、1（小圖維持原尺寸，放大只會糊掉）。
+        const fit = Math.min(
+          imageMaxW / image.naturalWidth,
+          imageMaxH / image.naturalHeight,
+          1,
+        );
+        imageW = Math.round(image.naturalWidth * fit);
+        imageH = Math.round(image.naturalHeight * fit);
+      }
+
       return {
         comment,
         avatar: assets.commentAvatars[index] ?? null,
+        image,
+        imageW,
+        imageH,
         lines,
-        height: Math.max(avatarSize, nameSize + 6 + lines.length * bodyLineH),
+        height:
+          headH +
+          (lines.length > 0 ? afterHead + lines.length * bodyLineH : 0) +
+          (imageH > 0 ? beforeImage + imageH : 0),
       };
     });
 
+    const label = `THREAD REPLIES · ${items.length}`;
+
     blocks.push({
       height:
-        afterRule + items.reduce((sum, i) => sum + i.height, 0) + (items.length - 1) * between,
+        afterRule +
+        labelSize +
+        afterLabel +
+        items.reduce((sum, i) => sum + i.height, 0) +
+        (items.length - 1) * between,
       draw: (c, top) => {
         c.strokeStyle = softInk(ink, 0.13);
         c.lineWidth = 2;
@@ -550,36 +637,86 @@ function layout(
         c.lineTo(contentW, top + 1);
         c.stroke();
 
-        let y = top + afterRule;
+        // 留言區的標頭。貼文與留言一起出現時，少了它就分不出下面是誰在說話。
+        c.textBaseline = "top";
+        c.fillStyle = softInk(ink, 0.4);
+        c.font = font(labelSize, 700);
+        c.fillText(label, 0, top + afterRule);
+
+        let y = top + afterRule + labelSize + afterLabel;
         for (const item of items) {
           const author = style.maskIdentity ? "匿名" : item.comment.name.trim();
           drawAvatar(c, item.avatar, 0, y, avatarSize, ink, author, style.maskIdentity);
 
+          const indent = avatarSize + Math.round(size * 0.4);
           c.textBaseline = "top";
           c.fillStyle = ink;
           c.font = font(nameSize, 700);
           c.fillText(author, indent, y);
 
-          const likes = item.comment.likes.trim();
-          if (likes) {
-            const nameW = c.measureText(author).width;
-            const heart = Math.round(nameSize * 0.8);
-            const hx = indent + nameW + Math.round(size * 0.4);
-            c.save();
-            c.fillStyle = softInk(ink, 0.45);
-            heartPath(c, hx, y + (nameSize - heart) / 2, heart);
-            c.fill();
-            c.restore();
-            c.fillStyle = softInk(ink, 0.45);
-            c.font = font(Math.round(nameSize * 0.9), 400);
-            c.fillText(likes, hx + heart + Math.round(size * 0.16), y + 1);
+          // 帳號與讚數同一行，用基線定位 —— 與統計列同一套作法，
+          // 愛心的方框中心才會落在字身中線上而不是偏高。
+          const metaMid = y + nameSize + 2 + metaSize / 2;
+          c.font = font(metaSize, 400);
+          c.textBaseline = "alphabetic";
+          const metaBase = metaMid + c.measureText("0").actualBoundingBoxAscent / 2;
+
+          const handle = style.maskIdentity ? "" : item.comment.handle.trim();
+          let metaX = indent;
+          if (handle) {
+            const at = handle.startsWith("@") ? handle : `@${handle}`;
+            c.fillStyle = softInk(ink, 0.4);
+            c.fillText(at, metaX, metaBase);
+            metaX += c.measureText(at).width + Math.round(size * 0.36);
           }
 
-          c.fillStyle = softInk(ink, 0.85);
-          c.font = font(bodySize, 400);
-          item.lines.forEach((line, i) => {
-            c.fillText(line, indent, y + nameSize + 6 + i * bodyLineH + (bodyLineH - bodySize) / 2);
-          });
+          // 讚數接在帳號後面。自動帶入時零會是空字串，所以只有真的有讚才會出現。
+          const likes = item.comment.likes.trim();
+          if (likes) {
+            const heart = Math.round(metaSize * 0.95);
+            c.save();
+            c.strokeStyle = softInk(ink, 0.4);
+            c.lineWidth = Math.max(1.5, size * 0.045);
+            c.lineJoin = "round";
+            c.lineCap = "round";
+            heartPath(c, metaX, metaMid - heart / 2, heart);
+            c.stroke();
+            c.restore();
+            c.fillStyle = softInk(ink, 0.4);
+            c.font = font(metaSize, 400);
+            c.fillText(likes, metaX + heart + Math.round(size * 0.14), metaBase);
+          }
+          c.textBaseline = "top";
+
+          // 時間靠右，與名稱同一行。
+          const time = item.comment.time.trim();
+          if (time) {
+            c.fillStyle = softInk(ink, 0.35);
+            c.font = font(metaSize, 400);
+            c.fillText(time, contentW - c.measureText(time).width, y + 1);
+          }
+
+          let cursor = y + headH;
+
+          if (item.lines.length > 0) {
+            cursor += afterHead;
+            c.fillStyle = softInk(ink, 0.85);
+            c.font = font(bodySize, 400);
+            item.lines.forEach((line, i) => {
+              c.fillText(line, 0, cursor + i * bodyLineH + (bodyLineH - bodySize) / 2);
+            });
+            cursor += item.lines.length * bodyLineH;
+          }
+
+          if (item.image && item.imageH > 0) {
+            cursor += beforeImage;
+            const ix = Math.round((contentW - item.imageW) / 2);
+            c.save();
+            roundRect(c, ix, cursor, item.imageW, item.imageH, imageCorner);
+            c.clip();
+            c.drawImage(item.image, ix, cursor, item.imageW, item.imageH);
+            c.restore();
+          }
 
           y += item.height + between;
         }

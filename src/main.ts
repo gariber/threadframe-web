@@ -14,6 +14,7 @@ import {
 import {
   fetchThreadsPost,
   formatCount,
+  formatRelativeTime,
   formatTime,
   proxyImage,
   type FetchedPost,
@@ -43,7 +44,13 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
 
 const post: Post = emptyPost();
 let style: Style = loadStyle();
-const assets: Assets = { avatar: null, images: [], bg: null, commentAvatars: [] };
+const assets: Assets = {
+  avatar: null,
+  images: [],
+  bg: null,
+  commentAvatars: [],
+  commentImages: [],
+};
 
 const canvas = $<HTMLCanvasElement>("canvas");
 const emptyMsg = $("empty");
@@ -158,15 +165,20 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   // 只留有內文的留言：Worker 會把貼圖或純圖片的回覆也算進來，
   // 那些在卡片上只會是一個空白列。展示幾則是使用者的選擇（style.commentLimit），
   // 這裡只負責把素材備齊。
+  //
+  // Worker 已經依讚數排好序了，這裡不再重排 —— 它看得到整串，我們只收到前幾則。
   const fetched = (data.comments ?? []).filter((c) => c.text.trim()).slice(0, MAX_COMMENTS);
   post.comments = fetched.map((c) => ({
     name: c.name || c.username,
+    handle: c.username,
     text: c.text,
+    time: formatRelativeTime(c.takenAt),
     likes: formatCount(c.likes),
     avatar: null,
   }));
-  // 頭像稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
+  // 圖片稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
   assets.commentAvatars = post.comments.map(() => null);
+  assets.commentImages = post.comments.map(() => null);
 
   syncFields();
   paintComments();
@@ -198,7 +210,7 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
         })
       : Promise.resolve();
 
-  const commentAvatarJobs = fetched.map((c, index) =>
+  const commentJobs = fetched.flatMap((c, index) => [
     c.avatar
       ? urlToImage(proxyImage(c.avatar))
           .then((img) => {
@@ -210,9 +222,20 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
             // 同上：載不到就用名稱首字的圓形底。
           })
       : Promise.resolve(),
-  );
+    c.image
+      ? urlToImage(proxyImage(c.image))
+          .then((img) => {
+            if (generation !== fetchGeneration) return;
+            assets.commentImages[index] = img;
+            draw();
+          })
+          .catch(() => {
+            // 留言的附圖載不到就只顯示文字。
+          })
+      : Promise.resolve(),
+  ]);
 
-  await Promise.all([avatarJob, imagesJob, ...commentAvatarJobs]);
+  await Promise.all([avatarJob, imagesJob, ...commentJobs]);
 }
 
 async function autoFill(url: string): Promise<void> {
@@ -518,6 +541,7 @@ function paintComments(): void {
     remove.addEventListener("click", () => {
       post.comments.splice(index, 1);
       assets.commentAvatars.splice(index, 1);
+      assets.commentImages.splice(index, 1);
       paintComments();
       draw();
     });
@@ -536,9 +560,19 @@ function paintComments(): void {
     name.autocomplete = "off";
     bind(name, "name");
 
+    const handle = document.createElement("input");
+    handle.type = "text";
+    handle.autocomplete = "off";
+    bind(handle, "handle");
+
     const text = document.createElement("textarea");
     text.rows = 2;
     bind(text, "text");
+
+    const time = document.createElement("input");
+    time.type = "text";
+    time.autocomplete = "off";
+    bind(time, "time");
 
     const likes = document.createElement("input");
     likes.type = "text";
@@ -557,11 +591,29 @@ function paintComments(): void {
       draw();
     });
 
+    const image = document.createElement("input");
+    image.type = "file";
+    image.accept = "image/*";
+    image.addEventListener("change", async () => {
+      const file = image.files?.[0];
+      if (!file) return;
+      assets.commentImages[index] = await fileToImage(file);
+      draw();
+    });
+
+    const who = document.createElement("div");
+    who.className = "triple";
+    who.append(labelled("名稱", name), labelled("帳號", handle));
+
     const bottom = document.createElement("div");
     bottom.className = "triple";
-    bottom.append(labelled("讚", likes), labelled("頭像", avatar));
+    bottom.append(labelled("時間", time), labelled("讚", likes));
 
-    row.append(head, labelled("名稱", name), labelled("內文", text, true), bottom);
+    const media = document.createElement("div");
+    media.className = "triple";
+    media.append(labelled("頭像", avatar), labelled("附圖", image));
+
+    row.append(head, who, labelled("內文", text, true), bottom, media);
     commentList.append(row);
   });
 
@@ -576,6 +628,7 @@ addComment.addEventListener("click", () => {
   if (post.comments.length >= MAX_COMMENTS) return;
   post.comments.push(emptyComment());
   assets.commentAvatars.push(null);
+  assets.commentImages.push(null);
   paintComments();
   draw();
 });
