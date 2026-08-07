@@ -108,8 +108,13 @@ export const defaultStyle = (): Style => ({
   // 貼文有幾張就放幾張（上限 4）。原本預設只放第一張，但多圖貼文的重點
   // 常常就在後面幾張，只出現第一張看起來像是壞掉而不是刻意的選擇。
   imageLimit: 4,
+  // 原始網址預設不畫。卡片是要拿去分享的，一條長網址在下面只是干擾 ——
+  // 需要出處的人自己開得起來，需要標註的人再自己打開這個開關。
   showUrl: false,
-  commentLimit: 4,
+  // 留言預設不展示。留言會把卡片拉得很長，而多數時候要分享的是貼文本身。
+  // 注意這只影響「畫不畫」：自動帶入照樣會把留言填進欄位，
+  // 想秀的時候把「展示留言數目」調上去就立刻出現，不必重新帶入。
+  commentLimit: 0,
   maskIdentity: false,
   fontId: "sans",
 });
@@ -118,9 +123,12 @@ const KEY = "threadframe.v1";
 
 /**
  * 存檔格式版本。用來辨認「這份設定是哪一版寫的」，不是用來丟掉舊設定的。
- * 目前只有 2：1（沒有這個欄位）代表預設值還是「圖片 1 張、留言 3 則」的年代。
+ *
+ *   1（沒有這個欄位）預設是「圖片 1 張、留言 3 則」
+ *   2              圖片改 4 張、留言改 4 則
+ *   3              留言改成不展示、原始網址改成不顯示
  */
-const SCHEMA = 2;
+const SCHEMA = 3;
 
 /**
  * 只保存排版偏好，不保存貼文內容 —— 貼文可能是別人的，留在裝置上沒有必要。
@@ -150,14 +158,27 @@ export function loadStyle(): Style {
     }
     base.customBg = null;
 
-    // 舊存檔沒有 schema。那一版的預設是「圖片 1 張、留言 3 則」，而這兩個
-    // 數字幾乎沒有人會特地去改 —— 存下來的絕大多數就是預設值本身。
-    // 照抄回來的話，使用者更新後會看到多圖貼文仍然只出現一張，
-    // 以為新版沒生效。只把這兩項拉回新預設，其餘設定原封不動。
-    if (saved.schema !== SCHEMA) {
-      const fresh = defaultStyle();
+    /*
+     * 預設值改版時，把存檔裡「多半只是舊預設值」的那幾項拉到新預設。
+     *
+     * 這些開關幾乎沒有人會特地去調，存下來的絕大多數就是當時的預設本身；
+     * 照抄回來的話，使用者更新後會看到卡片沒有任何變化，以為新版沒生效。
+     *
+     * 每一段只碰**那一版真正改過預設**的欄位，而且逐版累積地跑 ——
+     * 整組重設會把使用者在上一版特地選過的值一起清掉。
+     */
+    const fresh = defaultStyle();
+    const from = saved.schema ?? 1;
+
+    // v2：圖片 1 張 → 4 張、留言 3 則 → 4 則
+    if (from < 2) {
       base.imageLimit = fresh.imageLimit;
       base.commentLimit = fresh.commentLimit;
+    }
+    // v3：留言改成不展示、原始網址改成不顯示（兩者都讓卡片變長變雜）
+    if (from < 3) {
+      base.commentLimit = fresh.commentLimit;
+      base.showUrl = fresh.showUrl;
     }
   } catch {
     return defaultStyle();
