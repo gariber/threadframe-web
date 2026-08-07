@@ -200,27 +200,38 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
 /*
  * 四個統計圖示都畫成**外框線**，與 Threads 上的一致 ——
  * 那邊只有「已按讚」時才會是實心紅色，卡片是靜態的快照，一律用未按讚的樣子。
- * 每個 path 都只描述形狀，填色與線寬由呼叫端統一決定。
+ *
+ * 每個 path 都畫在同一個 s×s 的方框裡，而且**四個的實際筆畫都要撐滿
+ * 大約 x 0.08–0.92、y 0.10–0.90 這個範圍**。否則同樣的 s 畫出來，
+ * 佔框比例大的（泡泡）看起來就是比佔框比例小的（轉發）大一號，
+ * 排成一列時大小參差不齊。改任何一個 path 都要順手檢查這件事。
  */
 
-/** 讚：愛心外框。 */
+/**
+ * 讚：愛心外框。
+ *
+ * 控制點刻意落在方框外（負值、超過 1）—— 貝茲曲線不會通過控制點，
+ * 把控制點放在 0–1 之內畫出來的愛心只有方框的三分之二大，
+ * 排在其他三個圖示旁邊會明顯小一號。這些值是量出來的，不是估的。
+ */
 function heartPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   const cx = x + s / 2;
   ctx.beginPath();
-  ctx.moveTo(cx, y + s * 0.88);
-  ctx.bezierCurveTo(x + s * 0.02, y + s * 0.56, x + s * 0.06, y + s * 0.1, cx, y + s * 0.3);
-  ctx.bezierCurveTo(x + s * 0.94, y + s * 0.1, x + s * 0.98, y + s * 0.56, cx, y + s * 0.88);
+  ctx.moveTo(cx, y + s * 0.9);
+  ctx.bezierCurveTo(x - s * 0.08, y + s * 0.49, x - s * 0.03, y - s * 0.06, cx, y + s * 0.18);
+  ctx.bezierCurveTo(x + s * 1.03, y - s * 0.06, x + s * 1.08, y + s * 0.49, cx, y + s * 0.9);
   ctx.closePath();
 }
 
 /** 留言：對話泡泡，左下角帶一個小尾巴。 */
 function bubblePath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.ellipse(x + s / 2, y + s * 0.44, s * 0.44, s * 0.37, 0, 0, Math.PI * 2);
+  // 尾巴要算進總高度，泡泡本身因此比其他圖示的外圍略小一點。
+  ctx.ellipse(x + s / 2, y + s * 0.44, s * 0.42, s * 0.34, 0, 0, Math.PI * 2);
   // 尾巴獨立成一段開放路徑：跟泡泡連在同一個 path 裡描邊會多出一條穿過泡泡的線。
-  ctx.moveTo(x + s * 0.3, y + s * 0.76);
-  ctx.lineTo(x + s * 0.17, y + s * 0.96);
-  ctx.lineTo(x + s * 0.45, y + s * 0.8);
+  ctx.moveTo(x + s * 0.3, y + s * 0.72);
+  ctx.lineTo(x + s * 0.19, y + s * 0.9);
+  ctx.lineTo(x + s * 0.44, y + s * 0.76);
 }
 
 /**
@@ -229,32 +240,32 @@ function bubblePath(ctx: CanvasRenderingContext2D, x: number, y: number, s: numb
  */
 function sendPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
-  ctx.moveTo(x + s * 0.93, y + s * 0.1);
-  ctx.lineTo(x + s * 0.07, y + s * 0.45);
-  ctx.lineTo(x + s * 0.42, y + s * 0.58);
-  ctx.lineTo(x + s * 0.56, y + s * 0.92);
+  ctx.moveTo(x + s * 0.92, y + s * 0.1);
+  ctx.lineTo(x + s * 0.08, y + s * 0.44);
+  ctx.lineTo(x + s * 0.43, y + s * 0.57);
+  ctx.lineTo(x + s * 0.56, y + s * 0.9);
   ctx.closePath();
-  ctx.moveTo(x + s * 0.93, y + s * 0.1);
-  ctx.lineTo(x + s * 0.42, y + s * 0.58);
+  ctx.moveTo(x + s * 0.92, y + s * 0.1);
+  ctx.lineTo(x + s * 0.43, y + s * 0.57);
 }
 
 /** 轉發：上下兩支反向的箭頭，各自在末端轉一個直角。 */
 function repeatPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
   ctx.beginPath();
   // 上排：往右，右端向下收
-  ctx.moveTo(x + s * 0.16, y + s * 0.5);
-  ctx.lineTo(x + s * 0.16, y + s * 0.28);
-  ctx.lineTo(x + s * 0.74, y + s * 0.28);
-  ctx.moveTo(x + s * 0.58, y + s * 0.12);
-  ctx.lineTo(x + s * 0.76, y + s * 0.28);
-  ctx.lineTo(x + s * 0.58, y + s * 0.44);
+  ctx.moveTo(x + s * 0.1, y + s * 0.52);
+  ctx.lineTo(x + s * 0.1, y + s * 0.26);
+  ctx.lineTo(x + s * 0.8, y + s * 0.26);
+  ctx.moveTo(x + s * 0.64, y + s * 0.1);
+  ctx.lineTo(x + s * 0.82, y + s * 0.26);
+  ctx.lineTo(x + s * 0.64, y + s * 0.42);
   // 下排：往左，左端向上收
-  ctx.moveTo(x + s * 0.84, y + s * 0.5);
-  ctx.lineTo(x + s * 0.84, y + s * 0.72);
-  ctx.lineTo(x + s * 0.26, y + s * 0.72);
-  ctx.moveTo(x + s * 0.42, y + s * 0.88);
-  ctx.lineTo(x + s * 0.24, y + s * 0.72);
-  ctx.lineTo(x + s * 0.42, y + s * 0.56);
+  ctx.moveTo(x + s * 0.9, y + s * 0.48);
+  ctx.lineTo(x + s * 0.9, y + s * 0.74);
+  ctx.lineTo(x + s * 0.2, y + s * 0.74);
+  ctx.moveTo(x + s * 0.36, y + s * 0.9);
+  ctx.lineTo(x + s * 0.18, y + s * 0.74);
+  ctx.lineTo(x + s * 0.36, y + s * 0.58);
 }
 
 /** 圓形頭像：有圖就裁圓，沒圖就用名稱首字，遮蔽身分時只留素色圓。 */
@@ -484,6 +495,22 @@ function layout(
         // 先量出整列寬度才能置中。
         c.font = font(valueSize, 400);
         const dotW = c.measureText("·").width;
+
+        /*
+         * 數字改用基線定位，而不是 textBaseline="middle"。
+         *
+         * "middle" 對齊的是字型 em 框的中線，那條線會把上伸部與下伸部一起算進去；
+         * 阿拉伯數字沒有下伸部，全部落在基線之上，所以用 "middle" 畫出來的數字
+         * 會整體偏低，跟旁邊置中的圖示對不齊 —— 差距小但一整列看得很清楚。
+         * 改成量數字實際的字身高度，讓字身中線落在 cy 上。
+         *
+         * textBaseline 必須先設成 alphabetic 再量：actualBoundingBoxAscent 是
+         * 相對於「當下的 textBaseline」量的，在 top 之下量會得到接近 0 的值，
+         * 算出來的位移等於沒有位移。
+         */
+        c.textBaseline = "alphabetic";
+        const capH = c.measureText("0").actualBoundingBoxAscent;
+        const textBase = cy + capH / 2;
         const rowW = stats.reduce(
           (sum, [, value], index) =>
             sum +
@@ -498,11 +525,12 @@ function layout(
 
         stats.forEach(([icon, value], index) => {
           if (index > 0) {
-            // 項目之間的分隔點
+            // 項目之間的分隔點。這一顆是標點，維持 middle 才會落在行中央。
             c.textBaseline = "middle";
             c.fillStyle = softInk(ink, 0.35);
             c.font = font(valueSize, 400);
             c.fillText("·", x, cy);
+            c.textBaseline = "alphabetic";
             x += c.measureText("·").width + dotGap;
           }
 
@@ -511,16 +539,16 @@ function layout(
           c.lineWidth = Math.max(2, size * 0.055);
           c.lineJoin = "round";
           c.lineCap = "round";
-          icon(c, x, rowTop, iconSize);
+          // 圖示的方框以 cy 為中心，與數字的字身中線對齊。
+          icon(c, x, cy - iconSize / 2, iconSize);
           // 四個都描邊，不填色 —— Threads 上只有自己按過的那個才是實心。
           c.stroke();
           c.restore();
           x += iconSize + iconGap;
 
-          c.textBaseline = "middle";
           c.fillStyle = softInk(ink, 0.6);
           c.font = font(valueSize, 400);
-          c.fillText(value, x, cy);
+          c.fillText(value, x, textBase);
           x += c.measureText(value).width + dotGap;
         });
 
@@ -626,32 +654,39 @@ function layout(
           c.font = font(nameSize, 700);
           c.fillText(author, indent, y);
 
-          // 帳號排在名稱下方，遮蔽身分時整個拿掉 —— 留著等於沒遮。
+          // 帳號與讚數同一行，用基線定位 —— 與統計列同一套作法，
+          // 愛心的方框中心才會落在字身中線上而不是偏高。
+          const metaMid = y + nameSize + 2 + metaSize / 2;
+          c.font = font(metaSize, 400);
+          c.textBaseline = "alphabetic";
+          const metaBase = metaMid + c.measureText("0").actualBoundingBoxAscent / 2;
+
           const handle = style.maskIdentity ? "" : item.comment.handle.trim();
           let metaX = indent;
-          c.font = font(metaSize, 400);
           if (handle) {
             const at = handle.startsWith("@") ? handle : `@${handle}`;
             c.fillStyle = softInk(ink, 0.4);
-            c.fillText(at, metaX, y + nameSize + 2);
+            c.fillText(at, metaX, metaBase);
             metaX += c.measureText(at).width + Math.round(size * 0.36);
           }
 
           // 讚數接在帳號後面。自動帶入時零會是空字串，所以只有真的有讚才會出現。
           const likes = item.comment.likes.trim();
           if (likes) {
-            const heart = Math.round(metaSize * 0.85);
+            const heart = Math.round(metaSize * 0.95);
             c.save();
             c.strokeStyle = softInk(ink, 0.4);
             c.lineWidth = Math.max(1.5, size * 0.045);
             c.lineJoin = "round";
-            heartPath(c, metaX, y + nameSize + 2 + (metaSize - heart) / 2, heart);
+            c.lineCap = "round";
+            heartPath(c, metaX, metaMid - heart / 2, heart);
             c.stroke();
             c.restore();
             c.fillStyle = softInk(ink, 0.4);
             c.font = font(metaSize, 400);
-            c.fillText(likes, metaX + heart + Math.round(size * 0.14), y + nameSize + 2);
+            c.fillText(likes, metaX + heart + Math.round(size * 0.14), metaBase);
           }
+          c.textBaseline = "top";
 
           // 時間靠右，與名稱同一行。
           const time = item.comment.time.trim();

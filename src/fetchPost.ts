@@ -64,20 +64,20 @@ export async function fetchThreadsPost(postUrl: string): Promise<FetchedPost> {
 }
 
 /**
- * 統計數字縮寫成 1.9K / 321.7K / 1.2M，與分享圖上的慣例一致。
- * 只用在自動帶入的數字；使用者自己打的值不會被改寫。
+ * 統計數字寫成完整數字並加千分位：7259 → 7,259。
+ *
+ * 不縮寫成 7.3K —— Threads 自己顯示的就是完整數字，縮寫等於把資訊丟掉，
+ * 而卡片是要拿去分享的，數字本身常常就是重點。
+ *
+ * 千分位固定用逗號（寫死 en-US）：交給裝置的地區設定會讓同一則貼文在不同
+ * 手機上長得不一樣，有些地區用點號，看起來會像小數。
  *
  * 零一律留白 —— Threads 自己就不顯示零，畫成「♥ 0」只是雜訊。
  * 使用者想標出零的話，自己在欄位裡打上去仍然會照畫。
  */
 export function formatCount(value: number | null): string {
   if (value === null || Number.isNaN(value) || value === 0) return "";
-  const trim = (n: number) => (n % 1 === 0 ? String(n) : n.toFixed(1));
-  // 先算成 K，四捨五入後若已經滿一千才進位到 M，避免 999999 變成 "1000K"。
-  const k = Math.round(value / 100) / 10;
-  if (k >= 1000) return `${trim(Math.round(value / 100_000) / 10)}M`;
-  if (value >= 1_000) return `${trim(k)}K`;
-  return String(value);
+  return value.toLocaleString("en-US");
 }
 
 /**
