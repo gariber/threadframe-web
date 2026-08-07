@@ -188,30 +188,49 @@ function toComment(post) {
   };
 }
 
+/** 卡片輸出寬度固定 1080px，單張圖片會佔滿整個寬度。 */
+const FULL_WIDTH = 1080;
+
 /**
- * candidates[0] 是最大的那張（常見 1500px 以上）。卡片輸出寬度固定 1080px，
- * 多圖時每格更只有 540px，傳最大張純粹是浪費頻寬 —— 挑剛好夠用的即可。
+ * 多張時排成格狀，每格最寬是一半（兩欄）—— 三欄時只有三分之一。
+ * 取 540 涵蓋最寬的情況，再大就是傳了看不出來的像素。
  */
-function pickImage(node) {
+const CELL_WIDTH = 540;
+
+/**
+ * candidates 裡什麼尺寸都有（150 到 2268 都見過），挑**剛好夠用**的那張：
+ * 寬度 ≥ 需求之中最小的一張，都不到就取最大。
+ *
+ * 這裡差很多 —— 實測同一張圖 1080px 是 180KB、640px 只有 72KB，
+ * 而它在三張的格狀排列裡實際只畫到 320px 寬。
+ */
+function pickImage(node, minWidth) {
   const list = node?.image_versions2?.candidates;
   if (!Array.isArray(list)) return null;
 
   const usable = list.filter((c) => c?.url && c?.width);
   if (usable.length === 0) return null;
 
-  const enough = usable.filter((c) => c.width >= 1080).sort((a, b) => a.width - b.width);
+  const enough = usable.filter((c) => c.width >= minWidth).sort((a, b) => a.width - b.width);
   if (enough.length > 0) return enough[0].url;
   return usable.sort((a, b) => b.width - a.width)[0].url;
 }
 
 function collectImages(post) {
   const out = [];
-  const push = (node) => {
-    const url = pickImage(node);
+
+  if (Array.isArray(post.carousel_media)) {
+    post.carousel_media.forEach((node, index) => {
+      // 第一張仍可能單獨佔滿卡片（使用者把「圖片數目」設成 1），維持大張；
+      // 其餘只會出現在格狀排列裡，拿大張純粹是浪費頻寬。
+      const url = pickImage(node, index === 0 ? FULL_WIDTH : CELL_WIDTH);
+      if (url) out.push(url);
+    });
+  } else {
+    const url = pickImage(post, FULL_WIDTH);
     if (url) out.push(url);
-  };
-  if (Array.isArray(post.carousel_media)) post.carousel_media.forEach(push);
-  else push(post);
+  }
+
   return out.slice(0, 4);
 }
 
