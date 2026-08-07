@@ -64,13 +64,15 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
   "reposts": 12,              // number | null
   "shares": 18,               // number | null
   "images": ["https://…"],    // string[]，最多 4 張，原始網址（同樣需經 ?img= 代理）
-  "comments": [               // 最多 6 則，依頁面順序（見「解析方式」）
+  "comments": [               // 最多 6 則，依讚數由高到低（見「留言的挑選」）
     {
       "username": "alice",    // string
       "name": "渢乙",          // string，顯示名稱；沒有時退回 username
       "avatar": "https://…",  // string | null，同樣需經 ?img= 代理
       "text": "推",            // string
-      "likes": 12             // number | null
+      "likes": 12,            // number | null
+      "takenAt": 1785602450,  // number | null，Unix 秒
+      "image": "https://…"    // string | null，留言自己帶的圖，只取第一張
     }
   ]
 }
@@ -187,6 +189,17 @@ CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
 
 貼留言的連結時，主體是那則留言，`comments` 則是它後面的回覆 —— 不是原 PO
 底下的其他留言。
+
+### 留言的挑選
+
+`comments` **依讚數由高到低排序後才截斷**，不是照頁面順序取前幾則。
+
+這一步必須在 Worker 做。實測某則貼文掃出 59 則留言，讚數最高的那則（55 讚）
+排在頁面順序的第 8 位 —— 照順序取前 6 則會整個漏掉它，而前端只收得到這份
+清單，它自己再怎麼排也救不回沒送出去的那些。
+
+留言的 `image` 只取第一張，尺寸取 ≥540（卡片上畫得比貼文小）。整組輪播攤開
+會把卡片撐得很長，留言區要保持精簡。
 
 欄位對應：
 

@@ -6,6 +6,9 @@ export type FetchedComment = {
   avatar: string | null;
   text: string;
   likes: number | null;
+  /** 這兩個是後加的，舊版 Worker 不會回傳。 */
+  takenAt?: number | null;
+  image?: string | null;
 };
 
 export type FetchedPost = {
@@ -75,6 +78,30 @@ export function formatCount(value: number | null): string {
   if (k >= 1000) return `${trim(Math.round(value / 100_000) / 10)}M`;
   if (value >= 1_000) return `${trim(k)}K`;
   return String(value);
+}
+
+/**
+ * 相對時間（「13 小時」「2 天」），Threads 在留言上就是這樣標。
+ *
+ * 主貼文用的是絕對時間 —— 卡片是一張會被存下來、之後才看到的圖，
+ * 主體的時間點要能對得回去；留言只是陪襯，相對時間比較貼近原本的觀感。
+ */
+export function formatRelativeTime(epochSeconds: number | null | undefined): string {
+  if (!epochSeconds) return "";
+  const seconds = Math.max(0, Date.now() / 1000 - epochSeconds);
+
+  if (seconds < 60) return "剛剛";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} 分鐘`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小時`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days} 天`;
+  const weeks = Math.floor(days / 7);
+  if (weeks < 5) return `${weeks} 週`;
+
+  const d = new Date(epochSeconds * 1000);
+  return `${d.getMonth() + 1} 月 ${d.getDate()} 日`;
 }
 
 /** 絕對時間，與分享圖常見的寫法一致。 */

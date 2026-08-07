@@ -2,17 +2,28 @@ import { DEFAULT_BACKGROUND } from "./backgrounds";
 
 export type Ratio = "portrait" | "square" | "auto";
 
-export const MAX_COMMENTS = 3;
+export const MAX_COMMENTS = 4;
 
 export type Comment = {
   name: string;
+  /** 帳號（不含 @），顯示在名稱下方。 */
+  handle: string;
   text: string;
+  /** 相對時間，例如「13 小時」。 */
+  time: string;
   likes: string;
   /** dataURL；null 時改用名稱首字的圓形底。 */
   avatar: string | null;
 };
 
-export const emptyComment = (): Comment => ({ name: "", text: "", likes: "", avatar: null });
+export const emptyComment = (): Comment => ({
+  name: "",
+  handle: "",
+  text: "",
+  time: "",
+  likes: "",
+  avatar: null,
+});
 
 export type Post = {
   name: string;
@@ -94,15 +105,22 @@ export const defaultStyle = (): Style => ({
   showStats: true,
   showTime: true,
   showImages: true,
-  // 預設只放第一張 —— 多圖貼文整組貼上會把卡片拉得很長。
-  imageLimit: 1,
+  // 貼文有幾張就放幾張（上限 4）。原本預設只放第一張，但多圖貼文的重點
+  // 常常就在後面幾張，只出現第一張看起來像是壞掉而不是刻意的選擇。
+  imageLimit: 4,
   showUrl: false,
-  commentLimit: 3,
+  commentLimit: 4,
   maskIdentity: false,
   fontId: "sans",
 });
 
 const KEY = "threadframe.v1";
+
+/**
+ * 存檔格式版本。用來辨認「這份設定是哪一版寫的」，不是用來丟掉舊設定的。
+ * 目前只有 2：1（沒有這個欄位）代表預設值還是「圖片 1 張、留言 3 則」的年代。
+ */
+const SCHEMA = 2;
 
 /**
  * 只保存排版偏好，不保存貼文內容 —— 貼文可能是別人的，留在裝置上沒有必要。
@@ -111,7 +129,7 @@ const KEY = "threadframe.v1";
 export function saveStyle(style: Style): void {
   try {
     const { customBg: _customBg, ...rest } = style;
-    localStorage.setItem(KEY, JSON.stringify(rest));
+    localStorage.setItem(KEY, JSON.stringify({ ...rest, schema: SCHEMA }));
   } catch {
     // 無痕模式或配額已滿：偏好設定不保存不影響使用。
   }
@@ -122,7 +140,7 @@ export function loadStyle(): Style {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return base;
-    const saved = JSON.parse(raw) as Partial<Style>;
+    const saved = JSON.parse(raw) as Partial<Style> & { schema?: number };
     // 逐鍵套用，忽略型別不符的舊資料，避免舊版本的殘留把畫面弄壞。
     for (const key of Object.keys(base) as (keyof Style)[]) {
       const value = saved[key];
@@ -131,6 +149,16 @@ export function loadStyle(): Style {
       }
     }
     base.customBg = null;
+
+    // 舊存檔沒有 schema。那一版的預設是「圖片 1 張、留言 3 則」，而這兩個
+    // 數字幾乎沒有人會特地去改 —— 存下來的絕大多數就是預設值本身。
+    // 照抄回來的話，使用者更新後會看到多圖貼文仍然只出現一張，
+    // 以為新版沒生效。只把這兩項拉回新預設，其餘設定原封不動。
+    if (saved.schema !== SCHEMA) {
+      const fresh = defaultStyle();
+      base.imageLimit = fresh.imageLimit;
+      base.commentLimit = fresh.commentLimit;
+    }
   } catch {
     return defaultStyle();
   }

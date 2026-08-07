@@ -179,13 +179,33 @@ function splitThread(posts, wantedCode) {
 
 /** 留言只留下畫進卡片會用到的欄位。 */
 function toComment(post) {
+  // 留言的圖片在卡片上畫得比貼文小，540 就夠；只取第一張 ——
+  // 留言區要保持精簡，把整組輪播攤開會把卡片撐得很長。
+  const first = Array.isArray(post.carousel_media) ? post.carousel_media[0] : post;
+
   return {
     username: post.user?.username ?? "",
     name: post.user?.full_name || post.user?.username || "",
     avatar: post.user?.profile_pic_url ?? null,
     text: post.caption?.text ?? "",
     likes: post.like_count ?? null,
+    takenAt: post.taken_at ?? null,
+    image: pickImage(first, CELL_WIDTH),
   };
+}
+
+/**
+ * 留言依讚數由高到低取前幾則。
+ *
+ * 頁面順序不等於重要性 —— 實測某則貼文讚數最高的留言排在第 8 位，
+ * 照順序取前 6 則會整個漏掉它。排序必須在這裡做：前端只收得到這份清單，
+ * 它自己再排也救不回沒送出去的那些。
+ */
+function topComments(posts) {
+  return posts
+    .map(toComment)
+    .sort((a, b) => (b.likes ?? 0) - (a.likes ?? 0))
+    .slice(0, MAX_COMMENTS);
 }
 
 /** 卡片輸出寬度固定 1080px，單張圖片會佔滿整個寬度。 */
@@ -334,7 +354,7 @@ async function handlePost(target, cors) {
       reposts: info.repost_count ?? null,
       shares: info.reshare_count ?? null,
       images: collectImages(post),
-      comments: comments.slice(0, MAX_COMMENTS).map(toComment),
+      comments: topComments(comments),
     },
     200,
     cors,
