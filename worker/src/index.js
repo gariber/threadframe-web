@@ -182,6 +182,7 @@ function toComment(post) {
   // 留言的圖片在卡片上畫得比貼文小，540 就夠；只取第一張 ——
   // 留言區要保持精簡，把整組輪播攤開會把卡片撐得很長。
   const first = Array.isArray(post.carousel_media) ? post.carousel_media[0] : post;
+  const info = post.text_post_app_info ?? {};
 
   return {
     username: post.user?.username ?? "",
@@ -189,6 +190,10 @@ function toComment(post) {
     avatar: post.user?.profile_pic_url ?? null,
     text: post.caption?.text ?? "",
     likes: post.like_count ?? null,
+    // 留言在 Threads 上同樣有完整的四項互動，卡片要畫得像就得一起帶出來。
+    replies: info.direct_reply_count ?? null,
+    reposts: info.repost_count ?? null,
+    shares: info.reshare_count ?? null,
     takenAt: post.taken_at ?? null,
     image: pickImage(first, CELL_WIDTH),
   };

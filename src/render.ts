@@ -249,6 +249,9 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
   return out;
 }
 
+/** 統計圖示的繪製函式：在 (x, y) 起點、邊長 s 的方框裡描出形狀。 */
+type IconPath = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number) => void;
+
 /*
  * 四個統計圖示都畫成**外框線**，與 Threads 上的一致 ——
  * 那邊只有「已按讚」時才會是實心紅色，卡片是靜態的快照，一律用未按讚的樣子。
@@ -523,7 +526,7 @@ function layout(
   }
 
   // ── 互動統計 ───────────────────────────────────────────
-  const stats: [(c: CanvasRenderingContext2D, x: number, y: number, s: number) => void, string][] = [];
+  const stats: [IconPath, string][] = [];
   if (style.showStats) {
     if (post.likes.trim()) stats.push([heartPath, post.likes.trim()]);
     if (post.replies.trim()) stats.push([bubblePath, post.replies.trim()]);
@@ -627,49 +630,70 @@ function layout(
       : [];
 
   if (comments.length > 0) {
+    /*
+     * 版面照 Threads 上留言的樣子：
+     *
+     *   [頭像]  帳號  3 小時
+     *           內文……
+     *           [附圖]
+     *           ♡ 521   💬 1   ⇄ 4   ➤ 11
+     *   ───────────────────────────────────
+     *
+     * 三個關鍵：帳號與時間**同一行**（時間緊接在後，不是靠右對齊）、
+     * 內文**縮排對齊帳號**而不是切齊最左、每則下面都有完整的四項互動。
+     */
     const avatarSize = Math.round(size * 1.05);
     const nameSize = Math.round(size * 0.74);
     const metaSize = Math.round(size * 0.66);
     const bodySize = Math.round(size * 0.84);
     const bodyLineH = Math.round(bodySize * 1.5);
     const labelSize = Math.round(size * 0.6);
+    const statSize = Math.round(size * 0.62);
+    const statIcon = Math.round(size * 0.66);
 
     const afterRule = Math.round(size * 0.6);
     const afterLabel = Math.round(size * 0.7);
-    const between = Math.round(size * 0.85);
-    const afterHead = Math.round(size * 0.3);
+    const between = Math.round(size * 0.7);
+    const afterHead = Math.round(size * 0.24);
     const beforeImage = Math.round(size * 0.34);
+    const beforeStats = Math.round(size * 0.34);
+
+    /** 內文與互動列都對齊帳號，不是對齊卡片左緣。 */
+    const indent = avatarSize + Math.round(size * 0.4);
+    const textW = contentW - indent;
 
     // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
-    const imageMaxW = Math.round(contentW * 0.6);
+    const imageMaxW = Math.round(textW * 0.72);
     const imageMaxH = Math.round(size * 9);
     const imageCorner = Math.round(size * 0.3);
 
     ctx.font = font(nameSize, 700);
-    const nameLineH = lineHeight(ctx, nameSize);
-    ctx.font = font(metaSize, 400);
-    const metaLineH = lineHeight(ctx, metaSize);
-    /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
-    const stackGap = Math.round(size * 0.12);
-    const headH = Math.max(avatarSize, nameLineH + stackGap + metaLineH);
+    const headLineH = lineHeight(ctx, nameSize);
+    const headH = Math.max(avatarSize, headLineH);
+    ctx.font = font(statSize, 400);
+    const statLineH = Math.max(statIcon, lineHeight(ctx, statSize));
 
     ctx.font = font(bodySize, 400);
     const items = comments.map(({ comment, index }) => {
-      const lines = comment.text.trim() ? wrapText(ctx, comment.text.trim(), contentW) : [];
+      const lines = comment.text.trim() ? wrapText(ctx, comment.text.trim(), textW) : [];
 
       const image = assets.commentImages[index] ?? null;
       let imageW = 0;
       let imageH = 0;
       if (image && image.naturalWidth > 0) {
         // 取三者最小：寬度上限、高度上限、1（小圖維持原尺寸，放大只會糊掉）。
-        const fit = Math.min(
-          imageMaxW / image.naturalWidth,
-          imageMaxH / image.naturalHeight,
-          1,
-        );
+        const fit = Math.min(imageMaxW / image.naturalWidth, imageMaxH / image.naturalHeight, 1);
         imageW = Math.round(image.naturalWidth * fit);
         imageH = Math.round(image.naturalHeight * fit);
       }
+
+      // 四個圖示一律畫出來，數字只在不是零的時候出現 —— Threads 就是這樣。
+      const stats: [IconPath, string][] = [
+        [heartPath, comment.likes.trim()],
+        [bubblePath, comment.replies.trim()],
+        [repeatPath, comment.reposts.trim()],
+        [sendPath, comment.shares.trim()],
+      ];
 
       return {
         comment,
@@ -678,10 +702,13 @@ function layout(
         imageW,
         imageH,
         lines,
+        stats,
         height:
           headH +
           (lines.length > 0 ? afterHead + lines.length * bodyLineH : 0) +
-          (imageH > 0 ? beforeImage + imageH : 0),
+          (imageH > 0 ? beforeImage + imageH : 0) +
+          beforeStats +
+          statLineH,
       };
     });
 
@@ -709,57 +736,27 @@ function layout(
         c.fillText(label, 0, top + afterRule);
 
         let y = top + afterRule + labelSize + afterLabel;
-        for (const item of items) {
-          const author = style.maskIdentity ? "匿名" : item.comment.name.trim();
+        items.forEach((item, itemIndex) => {
+          // Threads 的留言列標的是帳號，不是顯示名稱。沒有帳號時才退回名稱，
+          // 這樣手動加的留言仍然有東西可以顯示。
+          const handle = item.comment.handle.trim().replace(/^@/, "");
+          const author = style.maskIdentity ? "匿名" : handle || item.comment.name.trim();
           drawAvatar(c, item.avatar, 0, y, avatarSize, ink, author, style.maskIdentity);
 
-          const indent = avatarSize + Math.round(size * 0.4);
-          c.textBaseline = "top";
-          c.fillStyle = ink;
-          c.font = font(nameSize, 700);
-          c.fillText(author, indent, y);
-
-          // 帳號與讚數同一行，用基線定位 —— 與統計列同一套作法，
-          // 愛心的方框中心才會落在字身中線上而不是偏高。
-          const metaMid = y + nameLineH + stackGap + metaLineH / 2;
-          c.font = font(metaSize, 400);
+          // 帳號與時間同一行，用基線定位讓兩個不同字級的字身對齊。
           c.textBaseline = "alphabetic";
-          const metaBase = metaMid + c.measureText("0").actualBoundingBoxAscent / 2;
-
-          const handle = style.maskIdentity ? "" : item.comment.handle.trim();
-          let metaX = indent;
-          if (handle) {
-            const at = handle.startsWith("@") ? handle : `@${handle}`;
-            c.fillStyle = softInk(ink, 0.4);
-            c.fillText(at, metaX, metaBase);
-            metaX += c.measureText(at).width + Math.round(size * 0.36);
-          }
-
-          // 讚數接在帳號後面。自動帶入時零會是空字串，所以只有真的有讚才會出現。
-          const likes = item.comment.likes.trim();
-          if (likes) {
-            const heart = Math.round(metaSize * 0.95);
-            c.save();
-            c.strokeStyle = softInk(ink, 0.4);
-            c.lineWidth = Math.max(1.5, size * 0.045);
-            c.lineJoin = "round";
-            c.lineCap = "round";
-            heartPath(c, metaX, metaMid - heart / 2, heart);
-            c.stroke();
-            c.restore();
-            c.fillStyle = softInk(ink, 0.4);
-            c.font = font(metaSize, 400);
-            c.fillText(likes, metaX + heart + Math.round(size * 0.14), metaBase);
-          }
-          c.textBaseline = "top";
-
-          // 時間靠右，與名稱同一行。
+          c.font = font(nameSize, 700);
+          const headBase = y + headLineH / 2 + c.measureText("字").actualBoundingBoxAscent / 2;
+          c.fillStyle = ink;
+          c.fillText(author, indent, headBase);
           const time = item.comment.time.trim();
           if (time) {
-            c.fillStyle = softInk(ink, 0.35);
+            const nameW = c.measureText(author).width;
             c.font = font(metaSize, 400);
-            c.fillText(time, contentW - c.measureText(time).width, y + 1);
+            c.fillStyle = softInk(ink, 0.38);
+            c.fillText(time, indent + nameW + Math.round(size * 0.34), headBase);
           }
+          c.textBaseline = "top";
 
           let cursor = y + headH;
 
@@ -768,26 +765,66 @@ function layout(
             c.fillStyle = softInk(ink, 0.85);
             c.font = font(bodySize, 400);
             item.lines.forEach((line, i) => {
-              c.fillText(line, 0, cursor + i * bodyLineH + (bodyLineH - bodySize) / 2);
+              c.fillText(line, indent, cursor + i * bodyLineH + (bodyLineH - bodySize) / 2);
             });
             cursor += item.lines.length * bodyLineH;
           }
 
           if (item.image && item.imageH > 0) {
             cursor += beforeImage;
-            const ix = Math.round((contentW - item.imageW) / 2);
             c.save();
-            roundRect(c, ix, cursor, item.imageW, item.imageH, imageCorner);
+            roundRect(c, indent, cursor, item.imageW, item.imageH, imageCorner);
             c.clip();
-            c.drawImage(item.image, ix, cursor, item.imageW, item.imageH);
+            c.drawImage(item.image, indent, cursor, item.imageW, item.imageH);
             c.restore();
+            cursor += item.imageH;
           }
 
-          y += item.height + between;
-        }
+          // 互動列
+          cursor += beforeStats;
+          const statMid = cursor + statLineH / 2;
+          c.font = font(statSize, 400);
+          c.textBaseline = "alphabetic";
+          const statBase = statMid + c.measureText("0").actualBoundingBoxAscent / 2;
+          let sx = indent;
+          for (const [icon, value] of item.stats) {
+            c.save();
+            c.strokeStyle = softInk(ink, 0.45);
+            c.lineWidth = Math.max(1.5, size * 0.045);
+            c.lineJoin = "round";
+            c.lineCap = "round";
+            icon(c, sx, statMid - statIcon / 2, statIcon);
+            c.stroke();
+            c.restore();
+            sx += statIcon;
+            if (value) {
+              const gap = Math.round(size * 0.14);
+              c.fillStyle = softInk(ink, 0.45);
+              c.fillText(value, sx + gap, statBase);
+              sx += gap + c.measureText(value).width;
+            }
+            sx += Math.round(size * 0.62);
+          }
+          c.textBaseline = "top";
+
+          y += item.height;
+
+          // 每則之間一條細線，與 Threads 上留言之間的分隔一致。
+          if (itemIndex < items.length - 1) {
+            const dividerY = y + Math.round(between / 2);
+            c.strokeStyle = softInk(ink, 0.08);
+            c.lineWidth = 2;
+            c.beginPath();
+            c.moveTo(indent, dividerY);
+            c.lineTo(contentW, dividerY);
+            c.stroke();
+            y += between;
+          }
+        });
       },
     });
   }
+
 
   // ── 原始網址 ───────────────────────────────────────────
   if (style.showUrl && post.url.trim()) {

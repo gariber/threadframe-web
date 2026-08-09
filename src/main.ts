@@ -184,6 +184,9 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
     text: c.text,
     time: formatRelativeTime(c.takenAt),
     likes: formatCount(c.likes),
+    replies: formatCount(c.replies ?? null),
+    reposts: formatCount(c.reposts ?? null),
+    shares: formatCount(c.shares ?? null),
     avatar: null,
   }));
   // 圖片稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
@@ -587,10 +590,14 @@ function paintComments(): void {
     time.autocomplete = "off";
     bind(time, "time");
 
-    const likes = document.createElement("input");
-    likes.type = "text";
-    likes.inputMode = "numeric";
-    bind(likes, "likes");
+    const counts = (["likes", "replies", "reposts", "shares"] as const).map((key) => {
+      const el = document.createElement("input");
+      el.type = "text";
+      el.inputMode = "numeric";
+      bind(el, key);
+      return el;
+    });
+    const [likes, replies, reposts, shares] = counts;
 
     const avatar = document.createElement("input");
     avatar.type = "file";
@@ -622,11 +629,15 @@ function paintComments(): void {
     bottom.className = "triple";
     bottom.append(labelled("時間", time), labelled("讚", likes));
 
+    const counters = document.createElement("div");
+    counters.className = "triple";
+    counters.append(labelled("留言", replies), labelled("轉發", reposts), labelled("分享", shares));
+
     const media = document.createElement("div");
     media.className = "triple";
     media.append(labelled("頭像", avatar), labelled("附圖", image));
 
-    row.append(head, who, labelled("內文", text, true), bottom, media);
+    row.append(head, who, labelled("內文", text, true), bottom, counters, media);
     commentList.append(row);
   });
 
