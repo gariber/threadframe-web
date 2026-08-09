@@ -278,7 +278,7 @@ async function handlePost(target, cors) {
   let lastStatus = 0;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 400 * attempt));
+    if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt));
 
     const upstream = await fetch(parsed.toString(), {
       headers: {
@@ -287,9 +287,19 @@ async function handlePost(target, cors) {
         accept: "text/html,application/xhtml+xml",
       },
       redirect: "follow",
-      // 同一則貼文短時間內重複開啟時走 Cloudflare 邊緣快取，
-      // 省掉再抓一次那份近 900KB 的 HTML。
-      cf: { cacheTtl: 300, cacheEverything: true },
+      /*
+       * 第一次走 Cloudflare 邊緣快取：同一則貼文短時間內重複開啟時，
+       * 省掉再抓一次那份近 900KB 的 HTML。
+       *
+       * 重試時一定要繞過快取。失敗的回應同樣會被存進去，照著快取重試
+       * 等於把同一個錯誤再讀兩次 —— 「試了 3 次」實際上只試了一次，
+       * 而且使用者接下來每次按都會撞到同一份，直到它過期為止。
+       * 這正是「連按幾次都失敗，過幾分鐘卻好了」的成因。
+       */
+      cf:
+        attempt === 0
+          ? { cacheTtl: 300, cacheEverything: true }
+          : { cacheTtl: 0, cacheEverything: false },
     });
 
     lastStatus = upstream.status;
