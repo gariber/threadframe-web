@@ -6,7 +6,10 @@ export type FetchedComment = {
   avatar: string | null;
   text: string;
   likes: number | null;
-  /** 這兩個是後加的，舊版 Worker 不會回傳。 */
+  /** 以下都是後加的，舊版 Worker 不會回傳。 */
+  replies?: number | null;
+  reposts?: number | null;
+  shares?: number | null;
   takenAt?: number | null;
   image?: string | null;
 };

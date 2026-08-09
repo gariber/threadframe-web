@@ -20,6 +20,9 @@ export type Comment = {
   /** 相對時間，例如「13 小時」。 */
   time: string;
   likes: string;
+  replies: string;
+  reposts: string;
+  shares: string;
   /** dataURL；null 時改用名稱首字的圓形底。 */
   avatar: string | null;
 };
@@ -30,6 +33,9 @@ export const emptyComment = (): Comment => ({
   text: "",
   time: "",
   likes: "",
+  replies: "",
+  reposts: "",
+  shares: "",
   avatar: null,
 });
 
