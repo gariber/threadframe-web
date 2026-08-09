@@ -150,6 +150,26 @@ function drawCover(
   ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
 }
 
+/**
+ * 一行文字實際佔掉的高度。**呼叫前要先設好 ctx.font。**
+ *
+ * 不能拿字級當行高。字級是 em 框的大小，而 CJK 的字身本來就會超出 em 框
+ * （中文字型的 ascent + descent 通常是字級的 1.15–1.4 倍），拿字級去排
+ * 上下兩行，畫出來就是黏在一起 —— 名稱與 @帳號 之間只剩幾個像素。
+ *
+ * fontBoundingBox 才是這個字型真正要的空間。舊瀏覽器沒有這組數值時，
+ * 退回一個對中文夠用的比例。
+ */
+function lineHeight(ctx: CanvasRenderingContext2D, size: number): number {
+  const m = ctx.measureText("字");
+  const ascent = m.fontBoundingBoxAscent;
+  const descent = m.fontBoundingBoxDescent;
+  if (typeof ascent === "number" && typeof descent === "number" && ascent + descent > 0) {
+    return Math.round(ascent + descent);
+  }
+  return Math.round(size * 1.25);
+}
+
 function paintBackground(
   ctx: CanvasRenderingContext2D,
   style: Style,
@@ -359,7 +379,14 @@ function layout(
     const avatarSize = Math.round(size * 1.75);
     const nameSize = Math.round(size * 0.95);
     const metaSize = Math.round(size * 0.8);
-    const headH = Math.max(style.showAvatar ? avatarSize : 0, nameSize + metaSize + 6);
+    ctx.font = font(nameSize, 700);
+    const nameLineH = lineHeight(ctx, nameSize);
+    ctx.font = font(metaSize, 400);
+    const metaLineH = lineHeight(ctx, metaSize);
+    /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
+    const stackGap = Math.round(size * 0.12);
+    const stackH = nameLineH + stackGap + metaLineH;
+    const headH = Math.max(style.showAvatar ? avatarSize : 0, stackH);
 
     blocks.push({
       height: headH,
@@ -381,11 +408,11 @@ function layout(
         }
 
         c.textBaseline = "top";
-        let ty = top + (headH - (nameSize + metaSize + 6)) / 2;
+        let ty = top + (headH - stackH) / 2;
         c.fillStyle = ink;
         c.font = font(nameSize, 700);
         c.fillText(name, x, ty);
-        ty += nameSize + 6;
+        ty += nameLineH + stackGap;
 
         // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
         const meta = handle ? `@${handle}` : "";
@@ -618,7 +645,13 @@ function layout(
     const imageMaxH = Math.round(size * 9);
     const imageCorner = Math.round(size * 0.3);
 
-    const headH = Math.max(avatarSize, nameSize + 2 + metaSize);
+    ctx.font = font(nameSize, 700);
+    const nameLineH = lineHeight(ctx, nameSize);
+    ctx.font = font(metaSize, 400);
+    const metaLineH = lineHeight(ctx, metaSize);
+    /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
+    const stackGap = Math.round(size * 0.12);
+    const headH = Math.max(avatarSize, nameLineH + stackGap + metaLineH);
 
     ctx.font = font(bodySize, 400);
     const items = comments.map(({ comment, index }) => {
@@ -688,7 +721,7 @@ function layout(
 
           // 帳號與讚數同一行，用基線定位 —— 與統計列同一套作法，
           // 愛心的方框中心才會落在字身中線上而不是偏高。
-          const metaMid = y + nameSize + 2 + metaSize / 2;
+          const metaMid = y + nameLineH + stackGap + metaLineH / 2;
           c.font = font(metaSize, 400);
           c.textBaseline = "alphabetic";
           const metaBase = metaMid + c.measureText("0").actualBoundingBoxAscent / 2;
