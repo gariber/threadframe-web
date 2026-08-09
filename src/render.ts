@@ -167,32 +167,64 @@ function paintBackground(
 }
 
 /**
- * 毛玻璃用的模糊。先縮小再放大 —— 縮圖時瀏覽器會做像素平均，本身就是一次模糊，
- * 在所有瀏覽器都有效；ctx.filter 只在支援的環境（iOS 17 以後）再疊一層讓邊緣更柔。
+ * canvas 的 filter 能不能用。不能只看 "filter" in ctx —— 屬性存在但不支援時，
+ * 指派會被靜靜忽略，所以寫進去再讀回來比對才算數。
+ */
+function supportsCanvasFilter(ctx: CanvasRenderingContext2D): boolean {
+  const before = ctx.filter;
+  try {
+    ctx.filter = "blur(1px)";
+    return ctx.filter === "blur(1px)";
+  } catch {
+    return false;
+  } finally {
+    ctx.filter = before;
+  }
+}
+
+/**
+ * 毛玻璃用的模糊。
+ *
+ * 優先走原生高斯模糊，**全解析度處理**。先前是把整張背景縮到 1/10 再放大，
+ * 靠取樣平均當作模糊 —— 那對純色漸層看不出來，但格線紙會被抹成扭曲的波紋、
+ * 斜切背景的交界會變成鋸齒。底板底下的畫質整個掉一級，而且只有底板那一塊掉，
+ * 跟旁邊清晰的背景擺在一起特別明顯。
+ *
+ * 原生 filter 不支援時才退回縮放法，並且把縮小倍率壓在 4 倍以內，
+ * 讓最壞情況不要壞得那麼難看。
  */
 function frost(source: HTMLCanvasElement, w: number, h: number, radius: number): HTMLCanvasElement {
-  const step = Math.max(2, Math.round(radius / 4));
-  const sw = Math.max(1, Math.round(w / step));
-  const sh = Math.max(1, Math.round(h / step));
-
-  const small = document.createElement("canvas");
-  small.width = sw;
-  small.height = sh;
-  const sctx = small.getContext("2d");
-
   const out = document.createElement("canvas");
   out.width = w;
   out.height = h;
   const octx = out.getContext("2d");
-  if (!sctx || !octx) return source;
+  if (!octx) return source;
+
+  octx.imageSmoothingEnabled = true;
+  octx.imageSmoothingQuality = "high";
+
+  if (supportsCanvasFilter(octx)) {
+    const r = Math.max(1, Math.round(radius / 3));
+    octx.filter = `blur(${r}px)`;
+    // 往外多畫一圈再模糊：不這麼做的話，四邊會把畫布外的透明像素混進來，
+    // 底板若貼近邊緣就會出現一圈變暗的痕跡。
+    octx.drawImage(source, -r, -r, w + r * 2, h + r * 2);
+    octx.filter = "none";
+    return out;
+  }
+
+  const step = Math.min(4, Math.max(2, Math.round(radius / 8)));
+  const sw = Math.max(1, Math.round(w / step));
+  const sh = Math.max(1, Math.round(h / step));
+  const small = document.createElement("canvas");
+  small.width = sw;
+  small.height = sh;
+  const sctx = small.getContext("2d");
+  if (!sctx) return source;
 
   sctx.imageSmoothingEnabled = true;
   sctx.imageSmoothingQuality = "high";
   sctx.drawImage(source, 0, 0, sw, sh);
-
-  octx.imageSmoothingEnabled = true;
-  octx.imageSmoothingQuality = "high";
-  if ("filter" in octx) octx.filter = `blur(${Math.max(1, Math.round(radius / 5))}px)`;
   octx.drawImage(small, 0, 0, w, h);
   return out;
 }
