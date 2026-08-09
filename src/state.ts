@@ -1,6 +1,14 @@
 import { DEFAULT_BACKGROUND } from "./backgrounds";
 
-export type Ratio = "portrait" | "square" | "auto";
+export type Ratio = "portrait" | "tall" | "square" | "auto";
+
+/**
+ * 時間要寫成絕對（2026-08-07 07:40）還是相對（6 小時）。
+ *
+ * 絕對是預設：卡片是會被存下來、之後才看到的圖，「6 小時」在那時候已經不成立。
+ * 但限時動態之類的用途講求即時感，相對時間比較貼近原本在 Threads 上的觀感。
+ */
+export type TimeFormat = "absolute" | "relative";
 
 export const MAX_COMMENTS = 4;
 
@@ -30,6 +38,11 @@ export type Post = {
   handle: string;
   text: string;
   time: string;
+  /**
+   * 自動帶入時的原始發文時間（Unix 秒）。留著才能在切換時間格式時重新換算 ——
+   * 只存 time 那串字的話，切過去就回不來了。手動輸入時為 null。
+   */
+  takenAt: number | null;
   /** dataURL；null 表示沒有頭像，改用文字縮寫圓形。 */
   avatar: string | null;
   /** dataURL，最多 4 張。 */
@@ -61,6 +74,7 @@ export type Style = {
   showAvatar: boolean;
   showStats: boolean;
   showTime: boolean;
+  timeFormat: TimeFormat;
   showImages: boolean;
   /** 最多顯示幾張貼文圖片（1–4）。 */
   imageLimit: number;
@@ -78,6 +92,7 @@ export const emptyPost = (): Post => ({
   handle: "",
   text: "",
   time: "",
+  takenAt: null,
   avatar: null,
   images: [],
   likes: "",
@@ -104,6 +119,7 @@ export const defaultStyle = (): Style => ({
   showAvatar: true,
   showStats: true,
   showTime: true,
+  timeFormat: "absolute",
   showImages: true,
   // 貼文有幾張就放幾張（上限 4）。原本預設只放第一張，但多圖貼文的重點
   // 常常就在後面幾張，只出現第一張看起來像是壞掉而不是刻意的選擇。

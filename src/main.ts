@@ -32,6 +32,7 @@ import {
   type Post,
   type Ratio,
   type Style,
+  type TimeFormat,
 } from "./state";
 
 declare const __BUILD_ID__: string;
@@ -149,13 +150,22 @@ function setStatus(kind: "hint" | "err" | "none", text = ""): void {
  */
 let fetchGeneration = 0;
 
+/** 依目前的時間格式，把 post.takenAt 換算成要畫出來的那串字。 */
+function formatPostTime(): string {
+  if (post.takenAt === null) return post.time;
+  return style.timeFormat === "relative"
+    ? formatRelativeTime(post.takenAt)
+    : formatTime(post.takenAt);
+}
+
 async function fillFromFetched(data: FetchedPost): Promise<void> {
   const generation = ++fetchGeneration;
 
   post.name = data.name || data.username;
   post.handle = data.username;
   post.text = data.text;
-  post.time = formatTime(data.takenAt);
+  post.takenAt = data.takenAt;
+  post.time = formatPostTime();
   post.likes = formatCount(data.likes);
   post.replies = formatCount(data.replies);
   post.reposts = formatCount(data.reposts);
@@ -341,6 +351,9 @@ for (const [id, key] of fields) {
   const el = $<HTMLInputElement | HTMLTextAreaElement>(id);
   el.addEventListener("input", () => {
     (post[key] as string) = el.value;
+    // 自己動手改過時間之後，切換時間格式就不該再把它換算掉 ——
+    // 忘了斷開的話，使用者打的字會在切格式時無聲消失。
+    if (key === "time") post.takenAt = null;
     draw();
   });
 }
@@ -886,6 +899,16 @@ for (const [id, key] of counters) {
   });
 }
 
+$<HTMLSelectElement>("s-time-format").addEventListener("change", (e) => {
+  style.timeFormat = (e.target as HTMLSelectElement).value as TimeFormat;
+  // 自動帶入過的貼文重新換算；手動打的時間不動 —— 那是使用者自己寫的字。
+  if (post.takenAt !== null) {
+    post.time = formatPostTime();
+    syncFields();
+  }
+  commit();
+});
+
 $("reset").addEventListener("click", () => {
   // 只重設排版，不動已經輸入的貼文內容 —— 那些重打一次成本太高。
   style = defaultStyle();
@@ -941,6 +964,7 @@ function syncControls(): void {
   $<HTMLInputElement>("s-ink-hex").value = style.textColor.toUpperCase();
   $<HTMLSelectElement>("s-font").value = style.fontId;
   $<HTMLSelectElement>("s-image-limit").value = String(style.imageLimit);
+  $<HTMLSelectElement>("s-time-format").value = style.timeFormat;
   $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {
     radio.checked = radio.value === style.ratio;

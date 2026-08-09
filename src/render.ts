@@ -1,6 +1,6 @@
 import { findBackground } from "./backgrounds";
 import { DEFAULT_FONT, findFont } from "./fonts";
-import { MAX_COMMENTS, type Post, type Style } from "./state";
+import { MAX_COMMENTS, type Post, type Ratio, type Style } from "./state";
 
 /** 輸出寬度固定，與裝置螢幕寬度無關；預覽只是把同一張圖縮小顯示。 */
 export const EXPORT_W = 1080;
@@ -773,9 +773,17 @@ export function renderCard(
   const panelH = metrics.height + panelPad * 2;
   const contentH = panelH + pad * 2;
 
-  const minH =
-    style.ratio === "portrait" ? Math.round(EXPORT_W * 1.25) : style.ratio === "square" ? EXPORT_W : 0;
-  const H = Math.max(contentH, minH);
+  /*
+   * 比例給的是**最小高度**，不是固定高度：內容比它長時卡片就往下長。
+   * 這樣「9:16」對長貼文才不會把內容裁掉，短貼文又拿得到限時動態的版型。
+   */
+  const MIN_HEIGHT: Record<Ratio, number> = {
+    portrait: Math.round(EXPORT_W * 1.25), // 4:5
+    tall: Math.round((EXPORT_W * 16) / 9), // 9:16
+    square: EXPORT_W,
+    auto: 0,
+  };
+  const H = Math.max(contentH, MIN_HEIGHT[style.ratio] ?? 0);
 
   canvas.width = EXPORT_W;
   canvas.height = H;

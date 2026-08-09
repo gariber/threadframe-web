@@ -6,7 +6,7 @@
     <title>ThreadFrame — 把 Threads 貼文變成分享圖</title>
     <meta
       name="description"
-      content="把 Threads 貼文排版成可下載的分享圖。全部在你的瀏覽器裡完成，不上傳任何資料。"
+      content="把 Threads 貼文排版成可下載的分享圖。排版與匯出都在你的瀏覽器裡完成；啟用自動帶入時，貼文連結會送到取文服務。"
     />
     <!--
       取文服務在另一個網域，貼文 JSON 與所有圖片都走它。先把 DNS 與 TLS 談好，
@@ -168,11 +168,13 @@
           <fieldset class="ratio">
             <legend>比例</legend>
             <label><input type="radio" name="ratio" value="portrait" />直式 4:5</label>
+            <label><input type="radio" name="ratio" value="tall" />直式 9:16</label>
             <label><input type="radio" name="ratio" value="square" />方形</label>
             <label><input type="radio" name="ratio" value="auto" />自動高度</label>
           </fieldset>
           <p class="hint">
             下載尺寸固定 1080px 寬，不隨這台裝置的畫面寬度變動。預覽只是縮小顯示，不影響輸出。
+            比例是<strong>最小高度</strong>：內容比它長時卡片會自己往下長，不會被裁掉。
           </p>
         </div>
       </details>
@@ -183,6 +185,12 @@
           <label class="check"><input id="t-avatar" type="checkbox" />頭像</label>
           <label class="check"><input id="t-stats" type="checkbox" />互動統計</label>
           <label class="check"><input id="t-time" type="checkbox" />時間</label>
+          <label>時間格式
+            <select id="s-time-format">
+              <option value="absolute">絕對（2026-08-07 07:40）</option>
+              <option value="relative">相對（6 小時）</option>
+            </select>
+          </label>
           <label class="check"><input id="t-images" type="checkbox" />貼文圖片</label>
           <label>圖片數目
             <select id="s-image-limit">
