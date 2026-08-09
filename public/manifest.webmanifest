@@ -1,7 +1,7 @@
 {
   "name": "ThreadFrame — 把 Threads 貼文變成分享圖",
   "short_name": "ThreadFrame",
-  "description": "把 Threads 貼文排版成分享圖。全部在本機處理，不蒐集任何資料。",
+  "description": "把 Threads 貼文排版成分享圖。排版與匯出都在本機完成；啟用自動帶入時，貼文連結會送到取文服務。",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
