@@ -534,14 +534,40 @@ function layout(
     if (post.shares.trim()) stats.push([sendPath, post.shares.trim()]);
   }
   if (stats.length > 0) {
-    const iconSize = Math.round(size * 0.85);
-    const valueSize = Math.round(size * 0.8);
+    const baseIconSize = Math.round(size * 0.85);
+    const baseValueSize = Math.round(size * 0.8);
     const ruleGap = Math.round(size * 0.5);
-    const iconGap = Math.round(size * 0.28);
-    const dotGap = Math.round(size * 0.42);
+    const baseIconGap = Math.round(size * 0.28);
+    const baseDotGap = Math.round(size * 0.42);
+
+    /**
+     * 統計列永遠從正文左緣開始；右側預留一點呼吸空間。
+     *
+     * 留白與字級都能由使用者大幅調整，四個數字也可能同時很長。固定尺寸時，
+     * 可用寬度一縮小就會把整列擠到右邊甚至裁掉。先量自然寬度，只有放不下時
+     * 才把圖示、文字與間距一起等比縮小，讓不同設定下的節奏維持一致。
+     */
+    const measureRow = (iconSize: number, valueSize: number, iconGap: number, dotGap: number) => {
+      ctx.font = font(valueSize, 400);
+      const dotW = ctx.measureText("·").width;
+      return stats.reduce(
+        (sum, [, value], index) =>
+          sum +
+          (index > 0 ? dotW + dotGap : 0) +
+          iconSize +
+          iconGap +
+          ctx.measureText(value).width +
+          (index < stats.length - 1 ? dotGap : 0),
+        0,
+      );
+    };
+
+    const naturalW = measureRow(baseIconSize, baseValueSize, baseIconGap, baseDotGap);
+    const safeW = Math.max(1, contentW - Math.round(size * 0.4));
+    const fit = Math.min(1, safeW / Math.max(1, naturalW));
 
     blocks.push({
-      height: ruleGap + iconSize,
+      height: ruleGap + Math.ceil(baseIconSize * fit),
       draw: (c, top) => {
         // 統計上方的細線，與時間隔開。
         c.strokeStyle = softInk(ink, 0.13);
@@ -552,11 +578,12 @@ function layout(
         c.stroke();
 
         const rowTop = top + ruleGap;
-        const cy = rowTop + iconSize / 2;
+        c.save();
+        c.translate(0, rowTop);
+        c.scale(fit, fit);
+        const cy = baseIconSize / 2;
 
-        // 先量出整列寬度才能置中。
-        c.font = font(valueSize, 400);
-        const dotW = c.measureText("·").width;
+        c.font = font(baseValueSize, 400);
 
         /*
          * 數字改用基線定位，而不是 textBaseline="middle"。
@@ -573,27 +600,17 @@ function layout(
         c.textBaseline = "alphabetic";
         const capH = c.measureText("0").actualBoundingBoxAscent;
         const textBase = cy + capH / 2;
-        const rowW = stats.reduce(
-          (sum, [, value], index) =>
-            sum +
-            (index > 0 ? dotW + dotGap : 0) +
-            iconSize +
-            iconGap +
-            c.measureText(value).width +
-            (index < stats.length - 1 ? dotGap : 0),
-          0,
-        );
-        let x = Math.max(0, (contentW - rowW) / 2);
+        let x = 0;
 
         stats.forEach(([icon, value], index) => {
           if (index > 0) {
             // 項目之間的分隔點。這一顆是標點，維持 middle 才會落在行中央。
             c.textBaseline = "middle";
             c.fillStyle = softInk(ink, 0.35);
-            c.font = font(valueSize, 400);
+            c.font = font(baseValueSize, 400);
             c.fillText("·", x, cy);
             c.textBaseline = "alphabetic";
-            x += c.measureText("·").width + dotGap;
+            x += c.measureText("·").width + baseDotGap;
           }
 
           c.save();
@@ -602,18 +619,19 @@ function layout(
           c.lineJoin = "round";
           c.lineCap = "round";
           // 圖示的方框以 cy 為中心，與數字的字身中線對齊。
-          icon(c, x, cy - iconSize / 2, iconSize);
+          icon(c, x, cy - baseIconSize / 2, baseIconSize);
           // 四個都描邊，不填色 —— Threads 上只有自己按過的那個才是實心。
           c.stroke();
           c.restore();
-          x += iconSize + iconGap;
+          x += baseIconSize + baseIconGap;
 
           c.fillStyle = softInk(ink, 0.6);
-          c.font = font(valueSize, 400);
+          c.font = font(baseValueSize, 400);
           c.fillText(value, x, textBase);
-          x += c.measureText(value).width + dotGap;
+          x += c.measureText(value).width + baseDotGap;
         });
 
+        c.restore();
         c.textBaseline = "top";
       },
     });
