@@ -18,6 +18,8 @@ export type FetchedPost = {
   url: string;
   username: string;
   name: string;
+  /** 選用：舊版 Worker 不會回傳；沒有話題時為 null。 */
+  topic?: string | null;
   avatar: string | null;
   text: string;
   takenAt: number | null;

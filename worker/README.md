@@ -11,7 +11,7 @@
 - 官方 oEmbed 需要 app token 與權限審核
 
 但 Threads **會對爬蟲 UA 提供伺服器算繪版本**（連結預覽就是靠這個）。這支 Worker 在伺服器端
-用爬蟲 UA 取得該版本，解析出作者、內文、統計與圖片，再帶著 CORS 標頭回傳給前端。
+用爬蟲 UA 取得該版本，解析出作者、話題、內文、統計與圖片，再帶著 CORS 標頭回傳給前端。
 
 圖片也必須經過這裡轉一手 —— `cdninstagram.com` 不給 CORS 標頭，前端若直接載入，
 canvas 會被污染（tainted），匯出時 `toBlob` 會直接丟 `SecurityError`。
@@ -51,7 +51,7 @@ https://<你的 app 網址>/?worker=https://threadframe-fetch.<你的帳號>.wor
 | `GET /?url=<threads 貼文網址>` | 貼文 JSON |
 | `GET /?img=<圖片網址>` | 轉送圖片並補上 CORS 標頭 |
 
-貼文 JSON 的欄位：`url`、`username`、`name`、`verified`、`avatar`、`text`、`takenAt`、
+貼文 JSON 的欄位：`url`、`username`、`name`、`topic`、`verified`、`avatar`、`text`、`takenAt`、
 `likes`、`replies`、`reposts`、`shares`、`images`、`comments`。
 
 `comments` 是後加的欄位，**舊版部署不會回傳它** —— 前端把它當選用欄位，

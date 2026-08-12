@@ -164,18 +164,19 @@ function scanPosts(html) {
  *
  * 頁面會把整串討論都嵌進來，而且**主貼文永遠排在最前面、留言排在後面**。
  * 因此不能直接取第一個 —— 貼留言的連結時會拿到原 PO 的文。
- * 改成比對網址裡的短碼，找不到才退回第一個（例如網址沒有 /post/ 片段）。
+ * 必須比對網址裡的短碼；沒有短碼或找不到時都視為失敗。Threads 可能把
+ * 無效短鏈轉回首頁，而首頁同樣內嵌推薦貼文，退回第一個就會靜靜地帶錯文。
  *
  * 留言只能靠順序判斷：物件本身沒有 parent / reply 之類的欄位可用，
  * 排在主體後面的就是它的留言。
  */
 function splitThread(posts, wantedCode) {
-  if (posts.length === 0) return { main: null, comments: [], exact: false };
+  if (!wantedCode || posts.length === 0) return { main: null, comments: [], exact: false };
 
-  const at = wantedCode ? posts.findIndex((p) => p.code === wantedCode) : 0;
-  const index = at === -1 ? 0 : at;
+  const at = posts.findIndex((p) => p.code === wantedCode);
+  if (at === -1) return { main: null, comments: [], exact: false };
 
-  return { main: posts[index], comments: posts.slice(index + 1), exact: at !== -1 };
+  return { main: posts[at], comments: posts.slice(at + 1), exact: true };
 }
 
 /** 留言只留下畫進卡片會用到的欄位。 */
@@ -260,6 +261,14 @@ function collectImages(post) {
   return out.slice(0, 4);
 }
 
+/** Threads 話題是獨立的 header，不是 caption 裡的 hashtag。 */
+function topicName(post) {
+  const value = post?.text_post_app_info?.tag_header?.display_name;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 async function handlePost(target, cors) {
   let parsed;
   try {
@@ -273,13 +282,11 @@ async function handlePost(target, cors) {
 
   // Threads 偶爾會短暫限流或回傳沒有內嵌資料的精簡頁面，重試幾次就會拿到。
   // 一次失敗就放棄的話，使用者看到的會是隨機失敗。
-  // exact = 短碼對得上的那則；fallback = 頁面裡的第一則（原貼文）。
-  // 兩者分開存：短碼對不上時要再試一次，而不是拿原貼文交差 ——
-  // Threads 偶爾會回傳不含該留言的頁面變體，直接接受就會靜靜地給錯貼文。
+  // 只接受短碼精確對得上的那則。短碼對不上時要再試一次，而不是拿頁面
+  // 第一則交差 —— Threads 偶爾會回傳首頁或不含目標貼文的頁面變體，
+  // 直接接受會把推薦貼文靜靜地填進卡片。
   let exact = null;
-  let fallback = null;
   let exactComments = [];
-  let fallbackComments = [];
   let finalUrl = parsed.toString();
   let lastStatus = 0;
 
@@ -313,6 +320,9 @@ async function handlePost(target, cors) {
 
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
     const wantedCode = codeFromUrl(upstream.url);
+    // 無效或無法公開讀取的短鏈可能最後落到 /?error=invalid_post。這種首頁
+    // 也含有 post 物件，但沒有目標短碼，絕不能繼續掃描並拿首頁首帖交差。
+    if (!wantedCode) continue;
     const found = splitThread(scanPosts(await upstream.text()), wantedCode);
     if (!found.main) continue;
 
@@ -322,16 +332,10 @@ async function handlePost(target, cors) {
       finalUrl = upstream.url;
       break;
     }
-    // 這次的頁面沒有目標那則，先記著再試一次。
-    if (!fallback) {
-      fallback = found.main;
-      fallbackComments = found.comments;
-      finalUrl = upstream.url;
-    }
   }
 
-  const post = exact ?? fallback;
-  const comments = exact ? exactComments : fallbackComments;
+  const post = exact;
+  const comments = exactComments;
   if (!post) {
     if (lastStatus && lastStatus !== 200) {
       return json(
@@ -361,6 +365,7 @@ async function handlePost(target, cors) {
       url: finalUrl.split("?")[0],
       username: post.user?.username ?? "",
       name: post.user?.full_name || post.user?.username || "",
+      topic: topicName(post),
       verified: Boolean(post.user?.is_verified),
       avatar: post.user?.profile_pic_url ?? null,
       text: post.caption?.text ?? "",

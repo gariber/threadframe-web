@@ -101,7 +101,7 @@ function fileToImage(file: File): Promise<HTMLImageElement> {
 let frame = 0;
 
 function hasContent(): boolean {
-  return Boolean(post.name.trim() || post.text.trim() || assets.images.length > 0);
+  return Boolean(post.name.trim() || post.topic.trim() || post.text.trim() || assets.images.length > 0);
 }
 
 function draw(): void {
@@ -162,6 +162,9 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   const generation = ++fetchGeneration;
 
   post.name = data.name || data.username;
+  // topic 是後加的選用欄位。帶入沒有話題的下一則時一定要清空，
+  // 不能讓上一則貼文的話題殘留在新卡片上。
+  post.topic = typeof data.topic === "string" ? data.topic.trim() : "";
   post.handle = data.username;
   post.text = data.text;
   post.takenAt = data.takenAt;
@@ -285,6 +288,10 @@ function applyIntake(): void {
 
   const parsed = preview;
 
+  // 直接貼整段文字代表正在切換到另一則貼文。這種格式沒有可靠的話題欄位，
+  // 因此必須清空上一則自動帶入的話題，避免掛到新作者與正文旁。
+  if (pastedContent) post.topic = "";
+
   if (parsed.name !== undefined) post.name = parsed.name;
   if (parsed.handle !== undefined) post.handle = parsed.handle;
   if (parsed.text !== undefined) post.text = parsed.text;
@@ -340,6 +347,7 @@ $("paste").addEventListener("click", async () => {
 // ── 貼文欄位 ─────────────────────────────────────────────
 const fields: [string, keyof Post][] = [
   ["f-name", "name"],
+  ["f-topic", "topic"],
   ["f-handle", "handle"],
   ["f-text", "text"],
   ["f-time", "time"],

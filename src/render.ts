@@ -170,6 +170,24 @@ function lineHeight(ctx: CanvasRenderingContext2D, size: number): number {
   return Math.round(size * 1.25);
 }
 
+/** 單行文字超出時保留省略號，避免作者名稱＋話題撞出卡片右緣。 */
+function ellipsize(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (!text || maxWidth <= 0) return "";
+  if (ctx.measureText(text).width <= maxWidth) return text;
+
+  const ellipsis = "…";
+  if (ctx.measureText(ellipsis).width > maxWidth) return "";
+  const chars = [...text];
+  let low = 0;
+  let high = chars.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (ctx.measureText(chars.slice(0, mid).join("") + ellipsis).width <= maxWidth) low = mid;
+    else high = mid - 1;
+  }
+  return chars.slice(0, low).join("") + ellipsis;
+}
+
 function paintBackground(
   ctx: CanvasRenderingContext2D,
   style: Style,
@@ -375,20 +393,25 @@ function layout(
   const blocks: Metrics[] = [];
 
   const name = style.maskIdentity ? "匿名" : post.name.trim();
+  const topic = post.topic.trim().replace(/^#+\s*/, "");
   const handle = style.maskIdentity ? "" : post.handle.trim();
+  const headline = topic ? [name, topic].filter(Boolean).join(" › ") : name;
+  const meta = handle ? `@${handle}` : "";
 
   // ── 作者列 ─────────────────────────────────────────────
-  if (name || handle || (style.showAvatar && assets.avatar) || style.showTime) {
+  if (headline || handle || (style.showAvatar && assets.avatar) || style.showTime) {
     const avatarSize = Math.round(size * 1.75);
     const nameSize = Math.round(size * 0.95);
     const metaSize = Math.round(size * 0.8);
+    const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
     const nameLineH = lineHeight(ctx, nameSize);
     ctx.font = font(metaSize, 400);
     const metaLineH = lineHeight(ctx, metaSize);
     /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
     const stackGap = Math.round(size * 0.12);
-    const stackH = nameLineH + stackGap + metaLineH;
+    const stackH =
+      (headline ? nameLineH : 0) + (headline && meta ? stackGap : 0) + (meta ? metaLineH : 0);
     const headH = Math.max(style.showAvatar ? avatarSize : 0, stackH);
 
     blocks.push({
@@ -407,22 +430,23 @@ function layout(
             name,
             style.maskIdentity,
           );
-          x += avatarSize + Math.round(size * 0.5);
+          x += avatarSize + avatarGap;
         }
 
         c.textBaseline = "top";
         let ty = top + (headH - stackH) / 2;
-        c.fillStyle = ink;
-        c.font = font(nameSize, 700);
-        c.fillText(name, x, ty);
-        ty += nameLineH + stackGap;
+        if (headline) {
+          c.fillStyle = ink;
+          c.font = font(nameSize, 700);
+          c.fillText(ellipsize(c, headline, Math.max(0, contentW - x)), x, ty);
+          ty += nameLineH + (meta ? stackGap : 0);
+        }
 
         // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
-        const meta = handle ? `@${handle}` : "";
         if (meta) {
           c.fillStyle = softInk(ink, 0.55);
           c.font = font(metaSize, 400);
-          c.fillText(meta, x, ty);
+          c.fillText(ellipsize(c, meta, Math.max(0, contentW - x)), x, ty);
         }
       },
     });

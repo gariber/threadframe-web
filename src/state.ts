@@ -41,6 +41,8 @@ export const emptyComment = (): Comment => ({
 
 export type Post = {
   name: string;
+  /** Threads 的貼文話題；與正文分開，顯示在作者名稱旁。 */
+  topic: string;
   handle: string;
   text: string;
   time: string;
@@ -95,6 +97,7 @@ export type AppState = { post: Post; style: Style };
 
 export const emptyPost = (): Post => ({
   name: "",
+  topic: "",
   handle: "",
   text: "",
   time: "",

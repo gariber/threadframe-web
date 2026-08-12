@@ -55,6 +55,7 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
   "url": "https://www.threads.com/@_fy_1005/post/DbgSoa2AXY_",  // 正規化後的貼文網址，query 已去除
   "username": "_fy_1005",     // string，帳號（不含 @）
   "name": "渢乙",              // string，顯示名稱；沒有時退回 username
+  "topic": "喜劇開場",         // string | null，Threads 話題；與正文分開
   "verified": false,          // boolean
   "avatar": "https://…",      // string | null，頭像原始網址（需經 ?img= 代理才能用於 canvas）
   "text": "12年前在…",         // string，保留原始換行與空行
@@ -80,6 +81,9 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
 
 數值欄位在來源缺該欄時為 `null`，不是 `0` —— 呼叫端才分得出「沒有這個數字」
 與「數字是零」。`text` 保留原始換行與空行。
+
+`topic` 取自目標貼文的 `text_post_app_info.tag_header.display_name`；沒有話題時為
+`null`。它不是從 caption 或 hashtag 猜出來的，因此不會把正文的一部分重複畫進標題。
 
 `comments` 是後加的欄位，**舊版部署不會回傳它**，呼叫端要能接受它不存在
 （前端的型別標成選用）。留言也不保證抓得到：拿到不含留言的頁面變體時會是空陣列。
@@ -215,6 +219,7 @@ CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
 | `reposts` | `text_post_app_info.repost_count` |
 | `shares` | `text_post_app_info.reshare_count` |
 | `text` | `post.caption.text` |
+| `topic` | `post.text_post_app_info.tag_header.display_name` |
 | `takenAt` | `post.taken_at` |
 | `comments[].name` | `user.full_name` ?? `user.username` |
 | `comments[].avatar` | `user.profile_pic_url` |
