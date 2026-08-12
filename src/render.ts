@@ -447,7 +447,7 @@ function layout(
     });
   }
 
-  // ── 貼文圖片（完整顯示，不裁切） ───────────────────────
+  // ── 貼文圖片（依方向自動適配） ─────────────────────────
   const images = style.showImages
     ? assets.images.slice(0, Math.max(0, Math.min(4, style.imageLimit)))
     : [];
@@ -465,28 +465,49 @@ function layout(
       cells = [{ x: 0, y: 0, w: contentW, h: height }];
       single = true;
     } else {
-      // 多張一律排成兩欄的方格，格與格之間留一道細縫（與 Threads 上一致）。
-      const w = (contentW - gap) / 2;
-      const step = w + gap;
+      /*
+       * 多張按「一行兩張」逐行判斷方向：
+       *
+       * - 橫圖／方圖維持原本的正方形格，不改已經好看的橫圖排法。
+       * - 直圖使用 Threads 常見的 2:3 卡位，少裁掉上下內容。
+       * - 一直一橫時依各自卡位比例分配欄寬，所以同一行仍等高，但直圖較窄、
+       *   橫圖較寬；不必犧牲其中一張去遷就另一張。
+       * - 最後落單的奇數張獨佔整排，固定成約 2:1 的橫向收尾。
+       */
+      const portraitRatio = 2 / 3;
+      const isPortrait = (img: HTMLImageElement) =>
+        img.naturalWidth > 0 && img.naturalHeight > img.naturalWidth * 1.05;
+      cells = [];
+      let y = 0;
 
-      if (images.length === 3) {
-        // 兩欄放不下三張，第三張獨佔整個下排 —— 讓右下角空一格會很像壞掉。
-        cells = [
-          { x: 0, y: 0, w, h: w },
-          { x: step, y: 0, w, h: w },
-          { x: 0, y: step, w: contentW, h: w },
-        ];
-        height = w * 2 + gap;
-      } else {
-        const rows = Math.ceil(images.length / 2);
-        cells = images.map((_, i) => ({
-          x: (i % 2) * step,
-          y: Math.floor(i / 2) * step,
-          w,
-          h: w,
-        }));
-        height = rows * w + (rows - 1) * gap;
+      for (let i = 0; i < images.length; i += 2) {
+        const first = images[i];
+        const second = images[i + 1];
+
+        if (!second) {
+          const oddHeight = (contentW - gap) / 2;
+          cells.push({ x: 0, y, w: contentW, h: oddHeight });
+          y += oddHeight;
+          continue;
+        }
+
+        const firstRatio = isPortrait(first) ? portraitRatio : 1;
+        const secondRatio = isPortrait(second) ? portraitRatio : 1;
+        const rowHeight = (contentW - gap) / (firstRatio + secondRatio);
+        const firstWidth = rowHeight * firstRatio;
+        // 讓第二格吃掉浮點數尾差，右緣一定與 contentW 齊平。
+        const secondWidth = contentW - gap - firstWidth;
+
+        cells.push(
+          { x: 0, y, w: firstWidth, h: rowHeight },
+          { x: firstWidth + gap, y, w: secondWidth, h: rowHeight },
+        );
+        y += rowHeight;
+
+        if (i + 2 < images.length) y += gap;
       }
+
+      height = y;
     }
 
     blocks.push({
@@ -500,7 +521,7 @@ function layout(
           c.clip();
           c.fillStyle = softInk(ink, 0.06);
           c.fillRect(cell.x, top + cell.y, cell.w, cell.h);
-          // 方格模式填滿格子，單張維持完整畫面。
+          // 多圖填滿依方向算出的卡位；單張仍維持完整畫面。
           const place = single ? drawContain : drawCover;
           place(c, img, cell.x, top + cell.y, cell.w, cell.h);
           c.restore();
