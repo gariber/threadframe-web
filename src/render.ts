@@ -449,8 +449,14 @@ function layout(
     const headlineW = headline ? ctx.measureText(headline).width : 0;
     ctx.font = font(metaSize, 400);
     const timeW = ctx.measureText(wantedTime).width;
-    // 中間至少要留一個字級的空隙，貼在一起比換行還難看。
-    if (avatarW + headlineW + size + timeW <= contentW) inlineTime = wantedTime;
+    /*
+     * 中間要留得下 2.5 個字級才算「放得下」。
+     *
+     * 門檻抓鬆的話會出現最糟的情況：名稱與時間勉強擠在同一行、中間只剩一點縫，
+     * 看起來像是排版失誤。寧可提早退回獨立一行 —— 那個版型本來就是好看的，
+     * 只是多佔一行而已。
+     */
+    if (avatarW + headlineW + size * 2.5 + timeW <= contentW) inlineTime = wantedTime;
   }
 
   // ── 標誌橫條 ───────────────────────────────────────────
