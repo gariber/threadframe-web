@@ -460,14 +460,19 @@ function layout(
   }
 
   // ── 標誌橫條 ───────────────────────────────────────────
-  // 自成一條窄橫條靠右擺，不跟作者列共用一行 —— 時間也靠右，
-  // 兩個擠在同一行遲早會撞在一起。
+  /*
+   * 自成一條窄橫條，標誌**置中**。
+   *
+   * 靠右擺過，不好看：左邊一大片空白，標誌像是不小心留下的記號。
+   * 置中之後兩側留白對稱，整條才讀得出來是「標題列」而不是漂浮的裝飾。
+   * 這也順便避開跟時間打架 —— 時間同樣靠右。
+   */
   if (style.showLogo) {
-    const logoSize = Math.round(size * 1.35);
+    const logoSize = Math.round(size * 1.5);
     blocks.push({
-      height: logoSize + Math.round(size * 0.35),
+      height: logoSize + Math.round(size * 0.5),
       draw: (c, top) => {
-        drawThreadsLogo(c, contentW - logoSize, top, logoSize, softInk(ink, 0.55));
+        drawThreadsLogo(c, (contentW - logoSize) / 2, top, logoSize, softInk(ink, 0.5));
       },
     });
   }
