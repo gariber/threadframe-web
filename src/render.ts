@@ -437,34 +437,6 @@ function layout(
   const author = style.maskIdentity ? "匿名" : rawHandle || post.name.trim();
   const headline = topic ? [author, topic].filter(Boolean).join(" › ") : author;
 
-  /*
-   * 時間優先擺在作者列右側（Threads 與參考版型都是這樣，也省下一整行）。
-   *
-   * 但這裡用的是絕對時間，"2026-08-06 08:48" 那串字不短，遇到長名稱會撞上。
-   * 所以先量一次：名稱與時間並排放得下才走行內，放不下就退回內容下方的
-   * 獨立時間行。判斷放在算繪之前做，後面兩個區塊才知道各自該不該畫。
-   */
-  const wantedTime = style.showTime ? post.time.trim() : "";
-  let inlineTime = "";
-  if (wantedTime) {
-    const nameSize = Math.round(size * 0.95);
-    const metaSize = Math.round(size * 0.8);
-    const avatarGap = Math.round(size * 0.5);
-    const avatarW = style.showAvatar ? Math.round(size * 1.75) + avatarGap : 0;
-    ctx.font = font(nameSize, 700);
-    const headlineW = headline ? ctx.measureText(headline).width : 0;
-    ctx.font = font(metaSize, 400);
-    const timeW = ctx.measureText(wantedTime).width;
-    /*
-     * 中間要留得下 2.5 個字級才算「放得下」。
-     *
-     * 門檻抓鬆的話會出現最糟的情況：名稱與時間勉強擠在同一行、中間只剩一點縫，
-     * 看起來像是排版失誤。寧可提早退回獨立一行 —— 那個版型本來就是好看的，
-     * 只是多佔一行而已。
-     */
-    if (avatarW + headlineW + size * 2.5 + timeW <= contentW) inlineTime = wantedTime;
-  }
-
   // ── 標誌橫條 ───────────────────────────────────────────
   /*
    * 自成一條窄橫條，標誌**置中**。
@@ -486,10 +458,9 @@ function layout(
   // ── 作者列 ─────────────────────────────────────────────
   // 只有一行：頭像 ＋「帳號 › 話題」＋ 時間。
   // 先前是名稱一行、@帳號一行，改成 Threads 的排法之後第二行就不需要了。
-  if (headline || (style.showAvatar && assets.avatar) || inlineTime) {
+  if (headline || (style.showAvatar && assets.avatar)) {
     const avatarSize = Math.round(size * 1.75);
     const nameSize = Math.round(size * 0.95);
-    const metaSize = Math.round(size * 0.8);
     const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
     const headLineH = lineHeight(ctx, nameSize);
@@ -517,23 +488,11 @@ function layout(
         c.textBaseline = "top";
         const ty = top + (headH - headLineH) / 2;
 
-        // 時間靠右。放不下時 inlineTime 會是空字串，改由下方那條獨立的時間行負責。
-        let timeW = 0;
-        if (inlineTime) {
-          c.font = font(metaSize, 400);
-          timeW = c.measureText(inlineTime).width + Math.round(size * 0.6);
-        }
-
+        // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
         if (headline) {
           c.fillStyle = ink;
           c.font = font(nameSize, 700);
-          c.fillText(ellipsize(c, headline, Math.max(0, contentW - x - timeW)), x, ty);
-        }
-
-        if (inlineTime) {
-          c.fillStyle = softInk(ink, 0.45);
-          c.font = font(metaSize, 400);
-          c.fillText(inlineTime, contentW - c.measureText(inlineTime).width, ty + 4);
+          c.fillText(ellipsize(c, headline, Math.max(0, contentW - x)), x, ty);
         }
       },
     });
@@ -643,7 +602,7 @@ function layout(
 
   // ── 發文時間 ───────────────────────────────────────────
   // 獨立一行放在內容之後、統計之前，與統計之間隔一條細線。
-  const timeText = inlineTime ? "" : wantedTime;
+  const timeText = style.showTime ? post.time.trim() : "";
   if (timeText) {
     const timeSize = Math.round(size * 0.8);
     blocks.push({
