@@ -87,6 +87,10 @@ export type Style = {
   /** 最多顯示幾張貼文圖片（1–4）。 */
   imageLimit: number;
   showUrl: boolean;
+  /** 卡片右上角的 Threads 標誌。 */
+  showLogo: boolean;
+  /** 卡片右下角的品牌標記。 */
+  showBrand: boolean;
   /** 展示幾則留言，0 表示不展示。 */
   commentLimit: number;
   maskIdentity: boolean;
@@ -136,6 +140,8 @@ export const defaultStyle = (): Style => ({
   // 原始網址預設不畫。卡片是要拿去分享的，一條長網址在下面只是干擾 ——
   // 需要出處的人自己開得起來，需要標註的人再自己打開這個開關。
   showUrl: false,
+  showLogo: true,
+  showBrand: true,
   // 留言預設不展示。留言會把卡片拉得很長，而多數時候要分享的是貼文本身。
   // 注意這只影響「畫不畫」：自動帶入照樣會把留言填進欄位，
   // 想秀的時候把「展示留言數目」調上去就立刻出現，不必重新帶入。

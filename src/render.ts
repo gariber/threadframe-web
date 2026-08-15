@@ -267,6 +267,39 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
   return out;
 }
 
+
+/**
+ * Threads 標誌的官方路徑（SVG 的 d 屬性，座標在 24×24 的方框裡）。
+ *
+ * 一定要用原始路徑，不能自己描弧線 —— 這個字符的筆畫粗細是變化的
+ * （左下最粗、右上收尖），它是一個「填滿的形狀」而不是「描邊的線條」，
+ * 用固定線寬畫弧線在原理上就重現不了。
+ */
+const THREADS_LOGO_VIEWBOX = 24;
+const THREADS_LOGO_PATH =
+  "M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z";
+
+/** 建一次就好；renderCard 會在拖滑桿時被反覆呼叫。 */
+let threadsLogo: Path2D | null = null;
+
+/** 把 Threads 標誌填在 (x, y) 起點、邊長 s 的方框裡。 */
+function drawThreadsLogo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+  color: string,
+): void {
+  if (!threadsLogo) threadsLogo = new Path2D(THREADS_LOGO_PATH);
+  const scale = s / THREADS_LOGO_VIEWBOX;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = color;
+  ctx.fill(threadsLogo);
+  ctx.restore();
+}
+
 /** 統計圖示的繪製函式：在 (x, y) 起點、邊長 s 的方框裡描出形狀。 */
 type IconPath = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number) => void;
 
@@ -392,27 +425,46 @@ function layout(
   const gap = Math.round(size * 0.7);
   const blocks: Metrics[] = [];
 
-  const name = style.maskIdentity ? "匿名" : post.name.trim();
+  /*
+   * 作者列標的是**帳號**，不是顯示名稱 —— Threads 自己就是這樣排的。
+   *
+   * 顯示名稱動輒很長（很多人把服務項目整串寫進名稱裡），塞進卡片會把整行
+   * 撐爆還得截斷，話題就被擠掉了。帳號短、唯一、而且是大家實際用來找人的東西。
+   * 沒有帳號時才退回顯示名稱，這樣手動輸入的卡片仍然有東西可顯示。
+   */
   const topic = post.topic.trim().replace(/^#+\s*/, "");
-  const handle = style.maskIdentity ? "" : post.handle.trim();
-  const headline = topic ? [name, topic].filter(Boolean).join(" › ") : name;
-  const meta = handle ? `@${handle}` : "";
+  const rawHandle = post.handle.trim().replace(/^@/, "");
+  const author = style.maskIdentity ? "匿名" : rawHandle || post.name.trim();
+  const headline = topic ? [author, topic].filter(Boolean).join(" › ") : author;
+
+  // ── 標誌橫條 ───────────────────────────────────────────
+  /*
+   * 自成一條窄橫條，標誌**置中**。
+   *
+   * 靠右擺過，不好看：左邊一大片空白，標誌像是不小心留下的記號。
+   * 置中之後兩側留白對稱，整條才讀得出來是「標題列」而不是漂浮的裝飾。
+   * 這也順便避開跟時間打架 —— 時間同樣靠右。
+   */
+  if (style.showLogo) {
+    const logoSize = Math.round(size * 1.5);
+    blocks.push({
+      height: logoSize + Math.round(size * 0.5),
+      draw: (c, top) => {
+        drawThreadsLogo(c, (contentW - logoSize) / 2, top, logoSize, softInk(ink, 0.5));
+      },
+    });
+  }
 
   // ── 作者列 ─────────────────────────────────────────────
-  if (headline || handle || (style.showAvatar && assets.avatar) || style.showTime) {
+  // 只有一行：頭像 ＋「帳號 › 話題」＋ 時間。
+  // 先前是名稱一行、@帳號一行，改成 Threads 的排法之後第二行就不需要了。
+  if (headline || (style.showAvatar && assets.avatar)) {
     const avatarSize = Math.round(size * 1.75);
     const nameSize = Math.round(size * 0.95);
-    const metaSize = Math.round(size * 0.8);
     const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
-    const nameLineH = lineHeight(ctx, nameSize);
-    ctx.font = font(metaSize, 400);
-    const metaLineH = lineHeight(ctx, metaSize);
-    /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
-    const stackGap = Math.round(size * 0.12);
-    const stackH =
-      (headline ? nameLineH : 0) + (headline && meta ? stackGap : 0) + (meta ? metaLineH : 0);
-    const headH = Math.max(style.showAvatar ? avatarSize : 0, stackH);
+    const headLineH = lineHeight(ctx, nameSize);
+    const headH = Math.max(style.showAvatar ? avatarSize : 0, headLineH);
 
     blocks.push({
       height: headH,
@@ -427,26 +479,20 @@ function layout(
             cy - avatarSize / 2,
             avatarSize,
             ink,
-            name,
+            author,
             style.maskIdentity,
           );
           x += avatarSize + avatarGap;
         }
 
         c.textBaseline = "top";
-        let ty = top + (headH - stackH) / 2;
+        const ty = top + (headH - headLineH) / 2;
+
+        // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
         if (headline) {
           c.fillStyle = ink;
           c.font = font(nameSize, 700);
           c.fillText(ellipsize(c, headline, Math.max(0, contentW - x)), x, ty);
-          ty += nameLineH + (meta ? stackGap : 0);
-        }
-
-        // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
-        if (meta) {
-          c.fillStyle = softInk(ink, 0.55);
-          c.font = font(metaSize, 400);
-          c.fillText(ellipsize(c, meta, Math.max(0, contentW - x)), x, ty);
         }
       },
     });
@@ -899,6 +945,28 @@ function layout(
         c.font = font(urlSize, 400);
         c.textBaseline = "top";
         c.fillText(post.url.trim().replace(/^https?:\/\//, ""), 0, top);
+      },
+    });
+  }
+
+  // ── 品牌標記 ───────────────────────────────────────────
+  /*
+   * 右下角一行小字。刻意做得比原始網址還輕：字級更小、透明度更低、
+   * 不加粗 —— 它要能看清，但不能跟貼文內容搶注意力。
+   *
+   * 不寫「Made by」：東西出現在卡片角落本來就代表是誰做的，那三個字是贅字。
+   * 網域放在後面，因為對看到卡片的人來說，「去哪裡找得到」比「誰做的」有用。
+   */
+  if (style.showBrand) {
+    const brandSize = Math.round(size * 0.62);
+    const brand = "ThreadsFrame · gariber.studio";
+    blocks.push({
+      height: brandSize + 4,
+      draw: (c, top) => {
+        c.font = font(brandSize, 400);
+        c.fillStyle = softInk(ink, 0.3);
+        c.textBaseline = "top";
+        c.fillText(brand, contentW - c.measureText(brand).width, top);
       },
     });
   }

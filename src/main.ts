@@ -101,7 +101,14 @@ function fileToImage(file: File): Promise<HTMLImageElement> {
 let frame = 0;
 
 function hasContent(): boolean {
-  return Boolean(post.name.trim() || post.topic.trim() || post.text.trim() || assets.images.length > 0);
+  // 帳號也要算 —— 作者列現在標的是帳號，只填帳號的卡片同樣該畫得出來。
+  return Boolean(
+    post.name.trim() ||
+      post.handle.trim() ||
+      post.topic.trim() ||
+      post.text.trim() ||
+      assets.images.length > 0,
+  );
 }
 
 function draw(): void {
@@ -953,6 +960,8 @@ const toggles: [string, keyof Style][] = [
   ["t-time", "showTime"],
   ["t-images", "showImages"],
   ["t-url", "showUrl"],
+  ["t-logo", "showLogo"],
+  ["t-brand", "showBrand"],
   ["t-glass", "glass"],
   ["t-mask", "maskIdentity"],
 ];
