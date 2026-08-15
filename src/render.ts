@@ -425,11 +425,17 @@ function layout(
   const gap = Math.round(size * 0.7);
   const blocks: Metrics[] = [];
 
-  const name = style.maskIdentity ? "匿名" : post.name.trim();
+  /*
+   * 作者列標的是**帳號**，不是顯示名稱 —— Threads 自己就是這樣排的。
+   *
+   * 顯示名稱動輒很長（很多人把服務項目整串寫進名稱裡），塞進卡片會把整行
+   * 撐爆還得截斷，話題就被擠掉了。帳號短、唯一、而且是大家實際用來找人的東西。
+   * 沒有帳號時才退回顯示名稱，這樣手動輸入的卡片仍然有東西可顯示。
+   */
   const topic = post.topic.trim().replace(/^#+\s*/, "");
-  const handle = style.maskIdentity ? "" : post.handle.trim();
-  const headline = topic ? [name, topic].filter(Boolean).join(" › ") : name;
-  const meta = handle ? `@${handle}` : "";
+  const rawHandle = post.handle.trim().replace(/^@/, "");
+  const author = style.maskIdentity ? "匿名" : rawHandle || post.name.trim();
+  const headline = topic ? [author, topic].filter(Boolean).join(" › ") : author;
 
   /*
    * 時間優先擺在作者列右側（Threads 與參考版型都是這樣，也省下一整行）。
@@ -478,20 +484,16 @@ function layout(
   }
 
   // ── 作者列 ─────────────────────────────────────────────
-  if (headline || handle || (style.showAvatar && assets.avatar) || style.showTime) {
+  // 只有一行：頭像 ＋「帳號 › 話題」＋ 時間。
+  // 先前是名稱一行、@帳號一行，改成 Threads 的排法之後第二行就不需要了。
+  if (headline || (style.showAvatar && assets.avatar) || inlineTime) {
     const avatarSize = Math.round(size * 1.75);
     const nameSize = Math.round(size * 0.95);
     const metaSize = Math.round(size * 0.8);
     const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
-    const nameLineH = lineHeight(ctx, nameSize);
-    ctx.font = font(metaSize, 400);
-    const metaLineH = lineHeight(ctx, metaSize);
-    /** 名稱與 @帳號 之間的行距，疊在正確的行高之上。 */
-    const stackGap = Math.round(size * 0.12);
-    const stackH =
-      (headline ? nameLineH : 0) + (headline && meta ? stackGap : 0) + (meta ? metaLineH : 0);
-    const headH = Math.max(style.showAvatar ? avatarSize : 0, stackH);
+    const headLineH = lineHeight(ctx, nameSize);
+    const headH = Math.max(style.showAvatar ? avatarSize : 0, headLineH);
 
     blocks.push({
       height: headH,
@@ -506,18 +508,16 @@ function layout(
             cy - avatarSize / 2,
             avatarSize,
             ink,
-            name,
+            author,
             style.maskIdentity,
           );
           x += avatarSize + avatarGap;
         }
 
         c.textBaseline = "top";
-        let ty = top + (headH - stackH) / 2;
+        const ty = top + (headH - headLineH) / 2;
 
-        // 時間靠右，與名稱同一行（Threads 與參考版型都是這樣）。
-        // 但絕對時間那串字很長，遇到長名稱會撞上 —— 撞得到就不畫在這裡，
-        // 讓它退回內容下方那條獨立的時間行。
+        // 時間靠右。放不下時 inlineTime 會是空字串，改由下方那條獨立的時間行負責。
         let timeW = 0;
         if (inlineTime) {
           c.font = font(metaSize, 400);
@@ -533,15 +533,7 @@ function layout(
         if (inlineTime) {
           c.fillStyle = softInk(ink, 0.45);
           c.font = font(metaSize, 400);
-          c.fillText(inlineTime, contentW - c.measureText(inlineTime).width, ty + 2);
-        }
-
-        if (headline) ty += nameLineH + (meta ? stackGap : 0);
-
-        if (meta) {
-          c.fillStyle = softInk(ink, 0.55);
-          c.font = font(metaSize, 400);
-          c.fillText(ellipsize(c, meta, Math.max(0, contentW - x)), x, ty);
+          c.fillText(inlineTime, contentW - c.measureText(inlineTime).width, ty + 4);
         }
       },
     });
