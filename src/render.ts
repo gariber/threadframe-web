@@ -269,41 +269,35 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
 
 
 /**
- * Threads 的標誌。
+ * Threads 標誌的官方路徑（SVG 的 d 屬性，座標在 24×24 的方框裡）。
  *
- * 那個字符是把 "@" 重畫成一條連續的緞帶：一個開口在右上的大環，
- * 環的左上延伸出一撇往右上收，右側再往內鉤回中心。
- * 三段各自獨立描邊 —— 連成同一條路徑的話，收尾會多出一條橫越環心的線。
+ * 一定要用原始路徑，不能自己描弧線 —— 這個字符的筆畫粗細是變化的
+ * （左下最粗、右上收尖），它是一個「填滿的形狀」而不是「描邊的線條」，
+ * 用固定線寬畫弧線在原理上就重現不了。
  */
-function threadsLogoPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
-  const cx = x + s * 0.5;
-  const cy = y + s * 0.54;
-  const r = s * 0.36;
+const THREADS_LOGO_VIEWBOX = 24;
+const THREADS_LOGO_PATH =
+  "M18.263 11.097c-.03-3.486-1.92-5.586-5.111-5.586-2.13 0-3.922.963-4.863 2.499l2.062 1.438c.535-.843 1.272-1.543 2.628-1.543 1.528 0 2.318.85 2.544 2.431a15 15 0 0 0-2.236-.173c-4.125 0-6.068 1.867-6.068 4.336s1.943 3.99 4.804 3.99c3.139 0 5.013-2.115 5.781-4.735.798.361 1.348 1.204 1.348 2.47 0 3.387-3.907 5.232-7.22 5.232-4.885 0-8.077-3.207-8.077-8.424 0-6.392 4.223-10.487 9.9-10.487 3.808 0 5.69 1.671 6.97 3.914l2.108-1.475C21.44 2.078 18.331 0 13.663 0 6.227 0 1.168 5.277 1.168 12.934c0 7 4.953 11.066 10.856 11.066 4.878 0 9.809-2.846 9.809-7.716 0-2.545-1.46-4.231-3.569-5.187m-6.33 4.855c-1.077 0-2.026-.512-2.026-1.453 0-1.483 1.822-1.934 3.606-1.934.678 0 1.34.045 1.927.173-.422 1.927-1.671 3.215-3.508 3.214Z";
 
-  ctx.beginPath();
-  // 主環：開口留在右上
-  ctx.arc(cx, cy, r, Math.PI * -0.18, Math.PI * 1.16, false);
+/** 建一次就好；renderCard 會在拖滑桿時被反覆呼叫。 */
+let threadsLogo: Path2D | null = null;
 
-  // 左上那一撇：越過頂端往右上收
-  ctx.moveTo(cx - r * 0.78, cy - r * 0.62);
-  ctx.bezierCurveTo(
-    cx - r * 0.55, cy - r * 1.62,
-    cx + r * 0.72, cy - r * 1.72,
-    cx + r * 0.92, cy - r * 0.52,
-  );
-
-  // 右側往內鉤回中心
-  ctx.moveTo(cx + r * 0.94, cy - r * 0.30);
-  ctx.bezierCurveTo(
-    cx + r * 1.02, cy + r * 0.62,
-    cx - r * 0.30, cy + r * 0.86,
-    cx - r * 0.26, cy + r * 0.06,
-  );
-  ctx.bezierCurveTo(
-    cx - r * 0.22, cy - r * 0.52,
-    cx + r * 0.66, cy - r * 0.30,
-    cx + r * 0.52, cy + r * 0.72,
-  );
+/** 把 Threads 標誌填在 (x, y) 起點、邊長 s 的方框裡。 */
+function drawThreadsLogo(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  s: number,
+  color: string,
+): void {
+  if (!threadsLogo) threadsLogo = new Path2D(THREADS_LOGO_PATH);
+  const scale = s / THREADS_LOGO_VIEWBOX;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(scale, scale);
+  ctx.fillStyle = color;
+  ctx.fill(threadsLogo);
+  ctx.restore();
 }
 
 /** 統計圖示的繪製函式：在 (x, y) 起點、邊長 s 的方框裡描出形狀。 */
@@ -467,14 +461,7 @@ function layout(
     blocks.push({
       height: logoSize + Math.round(size * 0.35),
       draw: (c, top) => {
-        c.save();
-        c.strokeStyle = softInk(ink, 0.55);
-        c.lineWidth = Math.max(2, size * 0.085);
-        c.lineCap = "round";
-        c.lineJoin = "round";
-        threadsLogoPath(c, contentW - logoSize, top, logoSize);
-        c.stroke();
-        c.restore();
+        drawThreadsLogo(c, contentW - logoSize, top, logoSize, softInk(ink, 0.55));
       },
     });
   }
