@@ -953,6 +953,8 @@ const toggles: [string, keyof Style][] = [
   ["t-time", "showTime"],
   ["t-images", "showImages"],
   ["t-url", "showUrl"],
+  ["t-logo", "showLogo"],
+  ["t-brand", "showBrand"],
   ["t-glass", "glass"],
   ["t-mask", "maskIdentity"],
 ];

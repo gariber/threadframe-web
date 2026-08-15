@@ -267,6 +267,45 @@ function frost(source: HTMLCanvasElement, w: number, h: number, radius: number):
   return out;
 }
 
+
+/**
+ * Threads 的標誌。
+ *
+ * 那個字符是把 "@" 重畫成一條連續的緞帶：一個開口在右上的大環，
+ * 環的左上延伸出一撇往右上收，右側再往內鉤回中心。
+ * 三段各自獨立描邊 —— 連成同一條路徑的話，收尾會多出一條橫越環心的線。
+ */
+function threadsLogoPath(ctx: CanvasRenderingContext2D, x: number, y: number, s: number): void {
+  const cx = x + s * 0.5;
+  const cy = y + s * 0.54;
+  const r = s * 0.36;
+
+  ctx.beginPath();
+  // 主環：開口留在右上
+  ctx.arc(cx, cy, r, Math.PI * -0.18, Math.PI * 1.16, false);
+
+  // 左上那一撇：越過頂端往右上收
+  ctx.moveTo(cx - r * 0.78, cy - r * 0.62);
+  ctx.bezierCurveTo(
+    cx - r * 0.55, cy - r * 1.62,
+    cx + r * 0.72, cy - r * 1.72,
+    cx + r * 0.92, cy - r * 0.52,
+  );
+
+  // 右側往內鉤回中心
+  ctx.moveTo(cx + r * 0.94, cy - r * 0.30);
+  ctx.bezierCurveTo(
+    cx + r * 1.02, cy + r * 0.62,
+    cx - r * 0.30, cy + r * 0.86,
+    cx - r * 0.26, cy + r * 0.06,
+  );
+  ctx.bezierCurveTo(
+    cx - r * 0.22, cy - r * 0.52,
+    cx + r * 0.66, cy - r * 0.30,
+    cx + r * 0.52, cy + r * 0.72,
+  );
+}
+
 /** 統計圖示的繪製函式：在 (x, y) 起點、邊長 s 的方框裡描出形狀。 */
 type IconPath = (ctx: CanvasRenderingContext2D, x: number, y: number, s: number) => void;
 
@@ -398,6 +437,48 @@ function layout(
   const headline = topic ? [name, topic].filter(Boolean).join(" › ") : name;
   const meta = handle ? `@${handle}` : "";
 
+  /*
+   * 時間優先擺在作者列右側（Threads 與參考版型都是這樣，也省下一整行）。
+   *
+   * 但這裡用的是絕對時間，"2026-08-06 08:48" 那串字不短，遇到長名稱會撞上。
+   * 所以先量一次：名稱與時間並排放得下才走行內，放不下就退回內容下方的
+   * 獨立時間行。判斷放在算繪之前做，後面兩個區塊才知道各自該不該畫。
+   */
+  const wantedTime = style.showTime ? post.time.trim() : "";
+  let inlineTime = "";
+  if (wantedTime) {
+    const nameSize = Math.round(size * 0.95);
+    const metaSize = Math.round(size * 0.8);
+    const avatarGap = Math.round(size * 0.5);
+    const avatarW = style.showAvatar ? Math.round(size * 1.75) + avatarGap : 0;
+    ctx.font = font(nameSize, 700);
+    const headlineW = headline ? ctx.measureText(headline).width : 0;
+    ctx.font = font(metaSize, 400);
+    const timeW = ctx.measureText(wantedTime).width;
+    // 中間至少要留一個字級的空隙，貼在一起比換行還難看。
+    if (avatarW + headlineW + size + timeW <= contentW) inlineTime = wantedTime;
+  }
+
+  // ── 標誌橫條 ───────────────────────────────────────────
+  // 自成一條窄橫條靠右擺，不跟作者列共用一行 —— 時間也靠右，
+  // 兩個擠在同一行遲早會撞在一起。
+  if (style.showLogo) {
+    const logoSize = Math.round(size * 1.35);
+    blocks.push({
+      height: logoSize + Math.round(size * 0.35),
+      draw: (c, top) => {
+        c.save();
+        c.strokeStyle = softInk(ink, 0.55);
+        c.lineWidth = Math.max(2, size * 0.085);
+        c.lineCap = "round";
+        c.lineJoin = "round";
+        threadsLogoPath(c, contentW - logoSize, top, logoSize);
+        c.stroke();
+        c.restore();
+      },
+    });
+  }
+
   // ── 作者列 ─────────────────────────────────────────────
   if (headline || handle || (style.showAvatar && assets.avatar) || style.showTime) {
     const avatarSize = Math.round(size * 1.75);
@@ -435,14 +516,30 @@ function layout(
 
         c.textBaseline = "top";
         let ty = top + (headH - stackH) / 2;
+
+        // 時間靠右，與名稱同一行（Threads 與參考版型都是這樣）。
+        // 但絕對時間那串字很長，遇到長名稱會撞上 —— 撞得到就不畫在這裡，
+        // 讓它退回內容下方那條獨立的時間行。
+        let timeW = 0;
+        if (inlineTime) {
+          c.font = font(metaSize, 400);
+          timeW = c.measureText(inlineTime).width + Math.round(size * 0.6);
+        }
+
         if (headline) {
           c.fillStyle = ink;
           c.font = font(nameSize, 700);
-          c.fillText(ellipsize(c, headline, Math.max(0, contentW - x)), x, ty);
-          ty += nameLineH + (meta ? stackGap : 0);
+          c.fillText(ellipsize(c, headline, Math.max(0, contentW - x - timeW)), x, ty);
         }
 
-        // 時間不放在這裡 —— 它自成一行落在內容下方、統計上方（見下方的時間區塊）。
+        if (inlineTime) {
+          c.fillStyle = softInk(ink, 0.45);
+          c.font = font(metaSize, 400);
+          c.fillText(inlineTime, contentW - c.measureText(inlineTime).width, ty + 2);
+        }
+
+        if (headline) ty += nameLineH + (meta ? stackGap : 0);
+
         if (meta) {
           c.fillStyle = softInk(ink, 0.55);
           c.font = font(metaSize, 400);
@@ -556,7 +653,7 @@ function layout(
 
   // ── 發文時間 ───────────────────────────────────────────
   // 獨立一行放在內容之後、統計之前，與統計之間隔一條細線。
-  const timeText = style.showTime ? post.time.trim() : "";
+  const timeText = inlineTime ? "" : wantedTime;
   if (timeText) {
     const timeSize = Math.round(size * 0.8);
     blocks.push({
@@ -899,6 +996,28 @@ function layout(
         c.font = font(urlSize, 400);
         c.textBaseline = "top";
         c.fillText(post.url.trim().replace(/^https?:\/\//, ""), 0, top);
+      },
+    });
+  }
+
+  // ── 品牌標記 ───────────────────────────────────────────
+  /*
+   * 右下角一行小字。刻意做得比原始網址還輕：字級更小、透明度更低、
+   * 不加粗 —— 它要能看清，但不能跟貼文內容搶注意力。
+   *
+   * 不寫「Made by」：東西出現在卡片角落本來就代表是誰做的，那三個字是贅字。
+   * 網域放在後面，因為對看到卡片的人來說，「去哪裡找得到」比「誰做的」有用。
+   */
+  if (style.showBrand) {
+    const brandSize = Math.round(size * 0.62);
+    const brand = "ThreadsFrame · gariber.studio";
+    blocks.push({
+      height: brandSize + 4,
+      draw: (c, top) => {
+        c.font = font(brandSize, 400);
+        c.fillStyle = softInk(ink, 0.3);
+        c.textBaseline = "top";
+        c.fillText(brand, contentW - c.measureText(brand).width, top);
       },
     });
   }
