@@ -1,5 +1,5 @@
 /**
- * ThreadFrame 取文代理（Cloudflare Worker）
+ * ThreadsFrame 取文代理（Cloudflare Worker）
  *
  * 網頁沒辦法直接讀 Threads 貼文：Threads 的任何端點都沒有開放跨網域，
  * 貼文頁本身又是 JS 算繪的空殼。這支 Worker 在伺服器端用爬蟲 UA 取得

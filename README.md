@@ -1,6 +1,6 @@
-# ThreadFrame 手機版
+# ThreadsFrame
 
-把 Threads 貼文排版成可下載的分享圖。這是 [ThreadFrame Chrome 擴充功能](https://chromewebstore.google.com/detail/kobbonidbbkkapfmomclplnogpmamiai) 的手機版 —— 一個可以加到主畫面的 PWA。
+把 Threads 貼文排版成可下載的分享圖。這是 [Threadframe Chrome 擴充功能](https://chromewebstore.google.com/detail/kobbonidbbkkapfmomclplnogpmamiai) 的手機版 —— 一個可以加到主畫面的 PWA。
 
 ## 自動帶入
 
@@ -70,9 +70,12 @@ Threads 的內嵌資料沒有指回父貼文的欄位，只能靠順序判斷，
 - 作者列標帳號而非顯示名稱（與 Threads 一致），話題接在後面：`帳號 › 話題`
 - 顯示切換：頭像、互動統計、時間、貼文圖片（可指定 1–4 張）、原始網址
 - 留言最多 4 則，可自動帶入或手動輸入，可指定展示數目，各自設定名稱、帳號、內文、時間、讚數、頭像與附圖
-- 貼文圖片排成兩欄方格（4 張即 2×2），格與格之間留一道細縫
+- 貼文圖片一行兩張，依方向自動配置：橫圖與方圖用正方格，直圖用 2:3 卡位，
+  一直一橫同行時等高但各自分配寬度；張數為奇數時最後一張獨佔整排。
+  格與格之間留一道細縫
 - 遮蔽作者身分（名稱、帳號、頭像一起蓋掉，留言者同步匿名化）
-- 貼文圖片完整顯示不裁切
+- 單張貼文圖片維持原比例完整顯示，不裁切；多張時各自填滿格子（邊緣會裁掉），
+  同一行才對得齊
 - 輸出固定 1080px 寬，與裝置螢幕無關
 - 重設只還原排版，不動已經輸入的貼文內容
 
