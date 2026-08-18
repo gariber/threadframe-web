@@ -165,6 +165,11 @@ test("Threads 拒絕存取與解析失敗要分成不同的錯誤碼與訊息", 
   assert.ok(!refused.body.message.includes("頁面結構"));
   assert.ok(refused.body.message.includes("登入"));
 
+  // 最常見的成因要明講出來，使用者才認得出「不是服務壞了」。
+  assert.ok(refused.body.message.includes("敏感"));
+  // 但不能只押這一種 —— 已刪除與連結有誤回的是一模一樣的轉址。
+  assert.ok(refused.body.message.includes("刪除"));
+
   // 反過來，真的解析不出來時就該明講可能是頁面結構變了。
   assert.ok(unparsable.body.message.includes("頁面結構"));
 });
