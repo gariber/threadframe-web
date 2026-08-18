@@ -1,0 +1,67 @@
+name: 部署取文 Worker
+
+# 跟 Pages 部署分成兩個 workflow，而不是加一個 job 進去：
+# 兩者的觸發條件、權限與失敗後果都不一樣。worker 部署掛掉時，前端仍然
+# 應該正常發佈（app 沒有 worker 也能用，只是退回手動貼上）。
+on:
+  push:
+    branches: [main]
+    # 只有 worker 真的改動時才部署。前端改一行就重推一次 worker，
+    # 除了浪費時間，也會讓部署紀錄看不出哪次真的換了 worker 行為。
+    paths:
+      - "worker/**"
+      - ".github/workflows/deploy-worker.yml"
+  # 允許在 Actions 分頁手動觸發，用來補跑失敗的部署，
+  # 或在剛設好憑證之後把當前的 main 推上去。
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# worker 只有一份線上版本，同時跑兩次部署會互相覆蓋。
+# 這裡讓新的取消舊的 —— 排隊中的那次本來就會被後面的蓋掉。
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 先跑 worker 測試再部署。這支 Worker 沒有預覽環境，
+      # 推上去就是線上版，壞掉會直接讓 app 的自動帶入整個失效。
+      - run: npm run test:worker
+
+      # 沒設憑證時要「跳過」而不是「失敗」。否則在還沒建好 token 的
+      # 這段期間，每次改到 worker 都會留下一個紅叉，久了就沒人在看，
+      # 真正的失敗也跟著被忽略。secrets 不能直接寫在 job 層的 if，
+      # 只能先讀進 env 再判斷。
+      - id: guard
+        env:
+          TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::尚未設定 CLOUDFLARE_API_TOKEN，略過 Worker 部署。設定方式見 worker/README.md。"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.guard.outputs.ready == 'true'
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          # 只有在帳號不只一個時才需要，留空 wrangler 會自己推斷。
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        # 鎖在 4.x：wrangler 跨大版本改過設定檔格式與 CLI 參數，
+        # 用 latest 會讓某天的例行部署突然壞掉，而且看不出跟哪個 commit 有關。
+        run: npx --yes wrangler@4 deploy
