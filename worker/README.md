@@ -20,11 +20,31 @@ canvas 會被污染（tainted），匯出時 `toBlob` 會直接丟 `SecurityErro
 
 需要一個 Cloudflare 帳號（免費方案就夠，這支服務不用 KV、D1 或任何密鑰）。
 
+### 從自己的電腦
+
 ```sh
 cd worker
 npx wrangler login     # 開瀏覽器授權，只需一次
 npx wrangler deploy
 ```
+
+### 從 GitHub Actions（手機上也能部署）
+
+`wrangler login` 要開瀏覽器授權，在雲端容器或手機上都跑不了。改用 API token 之後
+`.github/workflows/deploy-worker.yml` 就會在 `worker/` 有改動並推上 `main` 時自動部署，
+也可以在 Actions 分頁手動觸發。
+
+設定一次即可，全程在瀏覽器完成：
+
+1. Cloudflare 控制台 → My Profile → API Tokens → Create Token，
+   套用 **Edit Cloudflare Workers** 範本，建立後複製那串 token（只會顯示一次）
+2. GitHub repo → Settings → Secrets and variables → Actions → New repository secret，
+   名稱 `CLOUDFLARE_API_TOKEN`，值貼上剛才那串
+3. 帳號不只一個時再加一個 `CLOUDFLARE_ACCOUNT_ID`；只有一個帳號就不必，
+   wrangler 會自己推斷
+
+沒設 token 之前這個 workflow 會**跳過**部署而不是失敗 —— 免得在還沒設定的期間
+每次改 worker 都留一個紅叉，久了真正的失敗也跟著被忽略。
 
 部署完會印出網址，長得像：
 
