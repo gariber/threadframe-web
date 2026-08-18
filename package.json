@@ -8,9 +8,11 @@
     "build": "tsc --noEmit && vite build",
     "test:worker": "node --test worker/tests/index.test.mjs",
     "preview": "vite preview",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "test:render": "node --test tests/render.test.mjs"
   },
   "devDependencies": {
+    "playwright": "^1.62.1",
     "typescript": "~5.6.3",
     "vite": "^5.4.11"
   }

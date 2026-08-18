@@ -93,7 +93,15 @@ npm run dev      # 開發伺服器
 npm run build    # 型別檢查 + 打包到 dist/
 npm run preview  # 預覽打包結果
 npm run icons    # 重新產生 public/icons/*.png
+
+npm run test:worker  # 取文代理的解析與錯誤分流
+npm run test:render  # 卡片排版（需先 build，會開一顆 Chromium）
 ```
+
+`test:render` 用純色測試圖檢查多圖排版的規則本身 —— 同排等高、右緣對齊、
+落單獨佔整排 —— 而不是比對截圖。截圖會因為機器字體不同而假性失敗，
+規則檢查不會。它也不連 Threads：樣本貼文會被刪除或被擋在登入牆外，
+靠網路的測試遲早會因為與程式無關的原因而壞掉。
 
 算繪走 Canvas 2D（`src/render.ts`），不是 DOM 截圖 —— 輸出尺寸才能固定，也避開 `html2canvas` 那類方案在 iOS Safari 上的光柵化失敗。
 
