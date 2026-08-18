@@ -1,0 +1,51 @@
+name: 卡片排版檢查
+
+# 刻意與 Pages 部署分開，而不是塞進 deploy.yml 的 build job。
+#
+# 這支測試要開一顆瀏覽器，比純 Node 的測試脆弱一些（下載 Chromium、
+# 等待圖片解碼）。把它擋在部署前面，代表某天它因為與程式無關的原因失敗時，
+# 網站就跟著發不出去。分開之後最壞的情況只是這裡變紅，線上不受影響。
+#
+# 代價是排版真的壞掉時仍然會被部署出去 —— 但紅燈看得見，而且下一步就是
+# 回頭修，這比「部署系統偶爾自己卡住」好處理。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "index.html"
+      - "tests/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/check-render.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-render-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # 只裝 chromium。測試不跨瀏覽器 —— 這裡要驗的是 canvas 的排版算式，
+      # 不是瀏覽器相容性，三顆瀏覽器只會讓每次 CI 多等好幾分鐘。
+      - run: npx playwright install --with-deps chromium
+
+      # 測試直接靜態服務 dist/，所以要先有建置產物。
+      - run: npm run build
+
+      - run: npm run test:render
