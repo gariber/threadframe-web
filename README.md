@@ -1,6 +1,6 @@
 # ThreadsFrame
 
-把 Threads 貼文排版成可下載的分享圖。這是 [Threadframe Chrome 擴充功能](https://chromewebstore.google.com/detail/kobbonidbbkkapfmomclplnogpmamiai) 的手機版 —— 一個可以加到主畫面的 PWA。
+把 Threads 貼文排版成可下載的分享圖，一個可以加到主畫面的 PWA。
 
 ## 自動帶入
 
