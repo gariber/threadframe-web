@@ -51,6 +51,7 @@ const assets: Assets = {
   bg: null,
   commentAvatars: [],
   commentImages: [],
+  mediaTotal: 0,
 };
 
 const canvas = $<HTMLCanvasElement>("canvas");
@@ -228,6 +229,9 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
           assets.images = loaded
             .filter((r): r is PromiseFulfilledResult<HTMLImageElement> => r.status === "fulfilled")
             .map((r) => r.value);
+          // 舊版 Worker 不回 mediaCount，退回「收到幾張就是幾張」——
+          // 這樣不會憑空少報，只是畫不出 +N。
+          assets.mediaTotal = data.mediaCount ?? data.images.length;
           updateImageCount();
           draw();
         })
@@ -385,7 +389,14 @@ function syncFields(): void {
 
 function updateImageCount(): void {
   const n = assets.images.length;
-  $("image-count").textContent = n > 0 ? `已加入 ${n} 張貼文圖片（最多 4 張）` : "";
+  if (n === 0) {
+    $("image-count").textContent = "";
+    return;
+  }
+  // 原貼文比帶進來的多時要講出來 —— 「最多 4 張」是規則，
+  // 「這一則原本有幾張」是事實，只講規則使用者仍然不知道自己漏了什麼。
+  const extra = assets.mediaTotal > n ? `，原貼文共 ${assets.mediaTotal} 則` : "";
+  $("image-count").textContent = `已加入 ${n} 張貼文圖片（最多 4 張${extra}）`;
 }
 
 $<HTMLInputElement>("f-avatar").addEventListener("change", async (e) => {
@@ -399,12 +410,14 @@ $<HTMLInputElement>("f-avatar").addEventListener("change", async (e) => {
 $<HTMLInputElement>("f-images").addEventListener("change", async (e) => {
   const files = [...((e.target as HTMLInputElement).files ?? [])].slice(0, 4);
   assets.images = await Promise.all(files.map(fileToImage));
+  assets.mediaTotal = assets.images.length;
   updateImageCount();
   draw();
 });
 
 $("clear-images").addEventListener("click", () => {
   assets.images = [];
+  assets.mediaTotal = 0;
   $<HTMLInputElement>("f-images").value = "";
   updateImageCount();
   draw();

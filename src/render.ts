@@ -19,6 +19,11 @@ export type Assets = {
   commentAvatars: (HTMLImageElement | null)[];
   /** 同上，留言自己帶的附圖。 */
   commentImages: (HTMLImageElement | null)[];
+  /**
+   * 原貼文實際有幾則媒體。可能大於 images.length ——
+   * Threads 一則最多 10 張，卡片最多畫 4 張，差額會畫成「+N」。
+   */
+  mediaTotal: number;
 };
 
 const CJK_RE = /[ᄀ-ᇿ⺀-鿿　-〿가-힯豈-﫿＀-￯]/;
@@ -580,6 +585,17 @@ function layout(
       height = y;
     }
 
+    /*
+     * 原貼文比卡片畫得出來的多時，在最後一格標「+N」。
+     *
+     * 不標的話卡片會說謊：實測有一則內文寫「這 5 首歌」，卡片只有 4 張封面，
+     * 讀者無從得知少了一張。設定面板寫的「最多 4 張」是規則，不是這一則的事實。
+     *
+     * 用角落的小藥丸而不是整格蓋一層暗幕 —— 卡片的重點是內容，
+     * 為了一個提示把一整張圖壓掉並不划算。
+     */
+    const hidden = Math.max(0, assets.mediaTotal - images.length);
+
     blocks.push({
       height,
       draw: (c, top) => {
@@ -596,6 +612,33 @@ function layout(
           place(c, img, cell.x, top + cell.y, cell.w, cell.h);
           c.restore();
         });
+
+        if (hidden > 0) {
+          const cell = cells[images.length - 1];
+          const label = `+${hidden}`;
+          const fontSize = Math.round(size * 0.8);
+          c.font = font(fontSize, 700);
+          const padX = Math.round(fontSize * 0.55);
+          const padY = Math.round(fontSize * 0.35);
+          const w = ctx.measureText(label).width + padX * 2;
+          const h = fontSize + padY * 2;
+          const margin = Math.round(size * 0.35);
+          const x = cell.x + cell.w - w - margin;
+          const y = top + cell.y + cell.h - h - margin;
+
+          c.save();
+          // 固定的深色底加白字，不跟著文字色走 —— 它壓在照片上，
+          // 淺色主題若用淺色藥丸，遇到亮照片就完全看不見。
+          c.fillStyle = "rgba(0, 0, 0, 0.55)";
+          roundRect(c, x, y, w, h, h / 2);
+          c.fill();
+          c.fillStyle = "rgba(255, 255, 255, 0.95)";
+          c.font = font(fontSize, 700);
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.fillText(label, x + w / 2, y + h / 2 + 1);
+          c.restore();
+        }
       },
     });
   }

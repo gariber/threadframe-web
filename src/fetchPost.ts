@@ -28,6 +28,11 @@ export type FetchedPost = {
   reposts: number | null;
   shares: number | null;
   images: string[];
+  /**
+   * 選用：原貼文實際有幾則媒體，可能大於 images.length。
+   * 舊版 Worker 不會回這個欄位，呼叫端要能接受它不存在。
+   */
+  mediaCount?: number;
   /** 選用：舊版 Worker 不會回這個欄位，呼叫端要能接受它不存在。 */
   comments?: FetchedComment[];
 };
