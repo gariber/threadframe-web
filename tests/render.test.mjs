@@ -118,8 +118,11 @@ async function cellBoxes(page, count) {
   );
 }
 
-/** 帶入一則純文字貼文，上傳 count 張測試圖，回傳各色塊座標。 */
-async function renderWith(page, origin, count) {
+/**
+ * 帶入一則純文字貼文，上傳 upload 張測試圖、只顯示 count 張，回傳各色塊座標。
+ * upload > count 時等同「原貼文比卡片畫得出來的多」，用來驗 +N。
+ */
+async function renderWith(page, origin, count, upload = count) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
@@ -132,7 +135,7 @@ async function renderWith(page, origin, count) {
   await page.setInputFiles(
     "#f-images",
     await Promise.all(
-      files.slice(0, count).map(async (dataUrl, i) => ({
+      files.slice(0, upload).map(async (dataUrl, i) => ({
         name: `swatch${i}.png`,
         mimeType: "image/png",
         buffer: Buffer.from(dataUrl.split(",")[1], "base64"),
@@ -152,15 +155,45 @@ async function renderWith(page, origin, count) {
   }, count);
 
   // 算繪是同步的，但圖片解碼與 state 寫回要等一輪事件迴圈。
+  // 提示顯示的是「上傳了幾張」，不是「畫幾張」—— 等錯數字會直接逾時。
   await page.waitForFunction(
-    (n) => document.querySelector("#image-count")?.textContent?.includes(`${n} 張`),
-    count,
+    (n) => document.querySelector("#image-count")?.textContent?.includes(`已加入 ${n} 張`),
+    upload,
     { timeout: 15000 },
   );
   await page.waitForTimeout(300);
 
   const boxes = await cellBoxes(page, count);
   return { boxes, errors };
+}
+
+/**
+ * 數某個色塊右下角有多少像素「不是該色塊的顏色」。
+ *
+ * 不能改用「數深色像素」判斷藥丸：藥丸是半透明黑壓在測試圖上，混色後的結果
+ * 未必夠深 —— 壓在藍色 (45,140,240) 上時藍通道仍有 108。異色比對才可靠。
+ */
+async function countForeign(page, box, rgb) {
+  return page.evaluate(
+    ({ box, rgb }) => {
+      const c = document.querySelector("#canvas");
+      const x0 = Math.round(box.x0 + box.w * 0.5);
+      const y0 = Math.round(box.y0 + box.h * 0.5);
+      const d = c.getContext("2d").getImageData(x0, y0, box.x1 - x0 + 1, box.y1 - y0 + 1).data;
+      let n = 0;
+      for (let i = 0; i < d.length; i += 4) {
+        if (
+          Math.abs(d[i] - rgb[0]) > 20 ||
+          Math.abs(d[i + 1] - rgb[1]) > 20 ||
+          Math.abs(d[i + 2] - rgb[2]) > 20
+        ) {
+          n++;
+        }
+      }
+      return n;
+    },
+    { box, rgb },
+  );
 }
 
 const server = await serveDist();
@@ -245,4 +278,28 @@ test("四張：兩排各兩張，每排右緣都齊平", async () => {
   // 方圖（C）比直圖（D）寬，同排等高。
   assert.ok(Math.abs(c.h - d.h) <= 2, `第二排高度不一致：${c.h} vs ${d.h}`);
   assert.ok(c.w > d.w, "方圖沒有比直圖寬");
+});
+
+test("原貼文比畫得出來的多時，最後一格要標 +N", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  // 上傳 4 張但只顯示 2 張 —— 等同自動帶入時原貼文有 4 則、卡片只畫 2 則。
+  const { boxes, errors } = await renderWith(page, origin, 2, 4);
+
+  const badge = await countForeign(page, boxes.B, SWATCHES[1].rgb);
+  await page.close();
+
+  assert.deepEqual(errors, []);
+  // 那一區原本是整片純色，出現成片異色只可能是那顆藥丸。
+  assert.ok(badge > 500, `最後一格右下角沒看到 +N 藥丸（異色像素 ${badge}）`);
+});
+
+test("原貼文張數與顯示張數相同時不該出現 +N", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const { boxes, errors } = await renderWith(page, origin, 2, 2);
+
+  const badge = await countForeign(page, boxes.B, SWATCHES[1].rgb);
+  await page.close();
+
+  assert.deepEqual(errors, []);
+  assert.ok(badge < 100, `沒有東西被藏起來卻畫了 +N（異色像素 ${badge}）`);
 });

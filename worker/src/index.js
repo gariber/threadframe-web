@@ -262,6 +262,17 @@ function pickImage(node, minWidth) {
   return usable.sort((a, b) => b.width - a.width)[0].url;
 }
 
+/**
+ * 原貼文實際有幾則媒體 —— 不是回傳幾張。
+ *
+ * Threads 一則最多可放 10 張，卡片只畫 4 張。少掉的那些如果不講，
+ * 使用者會以為原貼文就只有這些：實測有一則內文寫「這 5 首歌」，
+ * 卡片卻只有 4 張封面，內容和圖片自己打架。前端拿這個數字畫「+N」。
+ */
+function mediaCount(post) {
+  return Array.isArray(post.carousel_media) ? post.carousel_media.length : 1;
+}
+
 function collectImages(post) {
   const out = [];
 
@@ -424,6 +435,7 @@ async function handlePost(target, cors) {
       reposts: info.repost_count ?? null,
       shares: info.reshare_count ?? null,
       images: collectImages(post),
+      mediaCount: mediaCount(post),
       comments: topComments(comments),
     },
     200,

@@ -41,9 +41,23 @@ jobs:
 
       - run: npm ci
 
-      # 只裝 chromium。測試不跨瀏覽器 —— 這裡要驗的是 canvas 的排版算式，
-      # 不是瀏覽器相容性，三顆瀏覽器只會讓每次 CI 多等好幾分鐘。
-      - run: npx playwright install --with-deps chromium
+      # 瀏覽器體積大且版本固定，快取起來，之後每次跑省掉整段下載。
+      - id: pw
+        run: echo "version=$(node -p "require('playwright/package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      # 只裝 chromium，而且不加 --with-deps。測試不跨瀏覽器 —— 這裡要驗的是
+      # canvas 的排版算式，不是瀏覽器相容性。
+      #
+      # --with-deps 會走 apt 裝一整組系統套件，實測在 GitHub runner 上會拖過
+      # 十分鐘，而 ubuntu-latest 本來就帶齊了 chromium 需要的函式庫。
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install chromium
 
       # 測試直接靜態服務 dist/，所以要先有建置產物。
       - run: npm run build
