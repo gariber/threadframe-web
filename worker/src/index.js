@@ -115,6 +115,25 @@ function codeFromUrl(url) {
   return m ? m[1] : null;
 }
 
+/**
+ * Threads 把貼文頁轉到首頁的 `?error=invalid_post` 時，等於明講「未登入讀不到這則」。
+ *
+ * 這跟「抓到了貼文頁卻解析不出來」是兩種完全不同的失敗，必須分開回報：
+ * 前者是 Threads 的決定，重試、改程式都沒有用；後者才可能是 Threads 換了
+ * 頁面結構、該來修這支 Worker 的訊號。混在同一句訊息裡，使用者每次碰到
+ * 受限貼文都會以為是服務壞了。
+ *
+ * 實測「內容受限」與「短碼根本不存在」轉到的網址一模一樣，Threads 不區分，
+ * 所以訊息只能兩種都提，不能單押其中一種。
+ */
+function refusedByThreads(url) {
+  try {
+    return new URL(url).searchParams.get("error") === "invalid_post";
+  } catch {
+    return false;
+  }
+}
+
 /** 一頁裡最多收這麼多個 post 物件就停手，避免長討論串拖慢回應。 */
 const MAX_SCAN = 60;
 
@@ -289,6 +308,7 @@ async function handlePost(target, cors) {
   let exactComments = [];
   let finalUrl = parsed.toString();
   let lastStatus = 0;
+  let refused = false;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt));
@@ -318,10 +338,16 @@ async function handlePost(target, cors) {
     lastStatus = upstream.status;
     if (!upstream.ok) continue;
 
+    // 無效或無法公開讀取的貼文最後會落到 /?error=invalid_post。這種首頁
+    // 也含有 post 物件，但沒有目標短碼，絕不能繼續掃描並拿首頁首帖交差。
+    // 記下來是為了最後能回報明確的原因，而不是跟解析失敗混為一談。
+    if (refusedByThreads(upstream.url)) {
+      refused = true;
+      continue;
+    }
+
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
     const wantedCode = codeFromUrl(upstream.url);
-    // 無效或無法公開讀取的短鏈可能最後落到 /?error=invalid_post。這種首頁
-    // 也含有 post 物件，但沒有目標短碼，絕不能繼續掃描並拿首頁首帖交差。
     if (!wantedCode) continue;
     const found = splitThread(scanPosts(await upstream.text()), wantedCode);
     if (!found.main) continue;
@@ -348,11 +374,34 @@ async function handlePost(target, cors) {
         cors,
       );
     }
-    // 鎖帳號、已刪除，或 Threads 換了頁面結構時會走到這裡。
+    if (refused) {
+      return json(
+        {
+          error: "post_unavailable",
+          /*
+           * 開頭直接點名「敏感或成人內容」—— 這是實務上最常見的成因，也是使用者
+           * 最需要立刻認出來的一種：貼文在自己登入的手機上看得好好的，只有這裡讀
+           * 不到，不講清楚就會一直以為是服務壞了。
+           *
+           * 但不能寫成斷言。Threads 對「內容受限」「已刪除」「短碼根本不存在」回的
+           * 轉址完全一樣，分不出來，所以其餘可能性要補在後面，免得使用者貼錯連結時
+           * 被帶去找不存在的分級問題。
+           */
+          message:
+            "這則貼文被 Threads 判定為敏感或成人內容，未登入讀不到，因此無法自動帶入卡片。" +
+            "（貼文已刪除、私人帳號或連結有誤也會是同樣結果，Threads 不區分。）" +
+            "請改成直接複製貼文文字貼上來，圖片從相簿選。",
+        },
+        404,
+        cors,
+      );
+    }
+
+    // 抓到了貼文頁卻挖不出資料 —— 這才是 Threads 可能換了頁面結構的訊號。
     return json(
       {
         error: "not_found",
-        message: "讀不到這則貼文。可能是私人帳號、已刪除，或 Threads 改了頁面結構。",
+        message: "抓到了頁面卻讀不出貼文內容，Threads 可能改了頁面結構。可以先改用複製貼文文字貼上。",
       },
       404,
       cors,

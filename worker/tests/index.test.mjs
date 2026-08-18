@@ -126,7 +126,7 @@ test("share 短鏈落到 invalid_post 首頁時不得回傳首頁第一則貼文
   const result = await fetchPost(target, [home, home, home]);
 
   assert.equal(result.response.status, 404);
-  assert.equal(result.body.error, "not_found");
+  assert.equal(result.body.error, "post_unavailable");
   assert.equal(result.calls, 3);
 });
 
@@ -138,4 +138,38 @@ test("頁面有其他貼文但沒有目標短碼時不得使用 fallback", async
   assert.equal(result.response.status, 404);
   assert.equal(result.body.error, "not_found");
   assert.equal(result.calls, 3);
+});
+
+/*
+ * 這兩個失敗長得很像，成因卻完全相反：一個是 Threads 明講不給看（敏感內容、
+ * 私人帳號、已刪除），使用者只能改走手動貼上；另一個是抓到頁面卻挖不出資料，
+ * 代表該來修這支 Worker 了。共用一組錯誤碼與訊息的話，兩邊都會被誤判。
+ */
+test("Threads 拒絕存取與解析失敗要分成不同的錯誤碼與訊息", async () => {
+  const refusedPage = upstream("https://www.threads.com/?error=invalid_post", []);
+  const refused = await fetchPost("https://www.threads.com/share/Restricted/", [
+    refusedPage,
+    refusedPage,
+    refusedPage,
+  ]);
+
+  const target = "https://www.threads.com/@target/post/ExpectedCode";
+  const emptyPage = upstream(target, []);
+  const unparsable = await fetchPost(target, [emptyPage, emptyPage, emptyPage]);
+
+  assert.equal(refused.body.error, "post_unavailable");
+  assert.equal(unparsable.body.error, "not_found");
+  assert.notEqual(refused.body.message, unparsable.body.message);
+
+  // 被擋下來時不能推給「Threads 改了頁面結構」—— 那會把使用者引去找不存在的故障。
+  assert.ok(!refused.body.message.includes("頁面結構"));
+  assert.ok(refused.body.message.includes("登入"));
+
+  // 最常見的成因要明講出來，使用者才認得出「不是服務壞了」。
+  assert.ok(refused.body.message.includes("敏感"));
+  // 但不能只押這一種 —— 已刪除與連結有誤回的是一模一樣的轉址。
+  assert.ok(refused.body.message.includes("刪除"));
+
+  // 反過來，真的解析不出來時就該明講可能是頁面結構變了。
+  assert.ok(unparsable.body.message.includes("頁面結構"));
 });
