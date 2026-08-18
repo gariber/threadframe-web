@@ -1,4 +1,4 @@
-# ThreadFrame 取文代理 — 介面規格
+# ThreadsFrame 取文代理 — 介面規格
 
 實作在 [`src/index.js`](src/index.js)，單一檔案、零外部相依。
 這份文件描述的是**實際部署中的行為**，不是計畫。

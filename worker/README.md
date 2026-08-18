@@ -1,6 +1,6 @@
-# ThreadFrame 取文代理
+# ThreadsFrame 取文代理
 
-讓 ThreadFrame 手機版可以「貼上連結 → 自動帶入內容」的中繼服務。
+讓 ThreadsFrame 可以「貼上連結 → 自動帶入內容」的中繼服務。
 
 ## 為什麼需要它
 
