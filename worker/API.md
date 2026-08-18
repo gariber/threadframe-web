@@ -111,7 +111,8 @@ canvas 一樣會被污染。
 | 400 | `bad_url` | 參數不是合法網址 |
 | 400 | `not_threads` | 主機不在 Threads 白名單 |
 | 403 | `host_not_allowed` | `?img=` 的主機不是 Meta CDN |
-| 404 | `not_found` | 有回應但解析不到貼文：私人帳號、已刪除，或 Threads 改版 |
+| 404 | `post_unavailable` | Threads 把貼文頁轉到 `?error=invalid_post`：敏感內容、私人帳號或已刪除 |
+| 404 | `not_found` | 抓到貼文頁卻解析不出內容，通常代表 Threads 改版 |
 | 403 | `origin_not_allowed` | 帶了 `Origin` 但不在來源白名單 |
 | 405 | `method_not_allowed` | 非 GET |
 | 429 | `rate_limited` | 超過每 IP 每分鐘 60 次，附 `retry-after: 60` |
@@ -119,6 +120,11 @@ canvas 一樣會被污染。
 
 `404` 與 `502` 的區分是刻意的：前者是這則貼文的問題，後者是暫時性的，
 訊息會請使用者稍後再試。
+
+兩種 `404` 也要分開看。`post_unavailable` 是 Threads 明講不給未登入的人讀，
+重試與改程式都沒有用，只能請使用者改走手動貼上；`not_found` 是頁面抓到了卻
+挖不出資料，那才是該來修這支 Worker 的訊號。實測「內容受限」與「短碼不存在」
+轉到的網址一模一樣，Threads 不區分，所以 `post_unavailable` 的訊息只能兩種都提。
 
 ---
 
@@ -257,7 +263,10 @@ Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
 
 ## 已知限制
 
-- **讀不到私人帳號的貼文**。爬蟲 UA 取得的內容與未登入者看到的公開內容相同。
+- **讀不到需要登入才看得到的貼文**。爬蟲 UA 取得的內容與未登入者看到的公開內容相同，
+  因此私人帳號、已刪除，以及**被判定為敏感內容**的貼文都讀不到 —— 後者在登入的
+  瀏覽器裡看得好好的，未登入卻整則 302 到 `?error=invalid_post`，連內文與統計都拿不到。
+  這類一律回 `404 post_unavailable`。
 - **依賴 Meta 的頁面結構**。Threads 改版時 `scanPosts` 會失效，回 `404 not_found`，
   前端提示改用手動貼上，不會整個壞掉。
 - **留言只能靠順序判斷**。內嵌的 post 物件沒有指回父貼文的欄位，只能用「排在主體
