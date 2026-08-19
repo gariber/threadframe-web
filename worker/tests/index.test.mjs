@@ -235,3 +235,50 @@ test("同一則貼文在新舊兩種鍵下各嵌一份時只算一則", async ()
   // 去重失效的話這一份會被當成自己的留言。
   assert.equal(result.body.comments.length, 0);
 });
+
+/*
+ * 讚數只在舊的 `post` 結構裡，而 Threads 隨機回兩種結構之一。拿到沒有讚數
+ * 的那份時多抓一次，就有機會補回來 —— 但只補一次：每趟都是近 700KB，
+ * 用滿三次會讓多數貼文明顯變慢，換到的機率提升卻有限。
+ */
+test("拿到沒有讚數的變體時會再抓一次，抓到有讚數的就採用", async () => {
+  const target = "https://www.threads.com/@teddy/post/LikeCode";
+  const withoutLikes = post("LikeCode", "teddy", "內文");
+  withoutLikes.like_count = null;
+  const withLikes = post("LikeCode", "teddy", "內文");
+  withLikes.like_count = 2542;
+
+  const result = await fetchPost(target, [
+    relayUpstream(target, withoutLikes, []),
+    upstream(target, [withLikes]),
+  ]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.likes, 2542);
+  assert.equal(result.calls, 2);
+});
+
+test("補抓仍然沒有讚數時，用手上那份交出去而不是失敗", async () => {
+  const target = "https://www.threads.com/@teddy/post/LikeCode";
+  const withoutLikes = post("LikeCode", "teddy", "內文");
+  withoutLikes.like_count = null;
+  const page = relayUpstream(target, withoutLikes, [post("c1", "someone", "留言")]);
+
+  const result = await fetchPost(target, [page, page, page]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.username, "teddy");
+  assert.equal(result.body.likes, null);
+  assert.equal(result.body.comments.length, 1);
+  // 只補抓一次 —— 第三趟不該再花。
+  assert.equal(result.calls, 2);
+});
+
+test("第一次就拿到讚數時不該多抓", async () => {
+  const target = "https://www.threads.com/@teddy/post/LikeCode";
+  const result = await fetchPost(target, [upstream(target, [post("LikeCode", "teddy", "內文")])]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.likes, 1);
+  assert.equal(result.calls, 1);
+});
