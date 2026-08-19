@@ -20,6 +20,21 @@ function page(posts) {
   return posts.map((item) => `<script>{"post":${JSON.stringify(item)}}</script>`).join("");
 }
 
+/**
+ * 2026-08 起 Threads 改用另一組 Relay 查詢算繪貼文頁：主貼文掛在 `media`、
+ * 底下的留言掛在 `node`，整頁一個 `post` 都沒有。
+ */
+function relayPage(main, comments = []) {
+  return (
+    `<script>{"data":{"media":${JSON.stringify(main)}}}</script>` +
+    comments.map((c) => `<script>{"edges":[{"node":${JSON.stringify(c)}}]}</script>`).join("")
+  );
+}
+
+function relayUpstream(url, main, comments) {
+  return { status: 200, ok: true, url, text: async () => relayPage(main, comments) };
+}
+
 function upstream(url, posts) {
   return {
     status: 200,
@@ -172,4 +187,51 @@ test("Threads 拒絕存取與解析失敗要分成不同的錯誤碼與訊息", 
 
   // 反過來，真的解析不出來時就該明講可能是頁面結構變了。
   assert.ok(unparsable.body.message.includes("頁面結構"));
+});
+
+/*
+ * 這一組守著的是實際發生過的線上故障：同一則貼文下午還是 `post` 結構、
+ * 晚上就換成 `media`/`node`，只認 `post` 的版本會整個讀不出來，而且錯誤
+ * 訊息會誤導成「Threads 改了頁面結構」——那時它確實改了，但我們該跟上。
+ */
+test("新的 media/node 結構也要讀得出貼文與留言", async () => {
+  const target = "https://www.threads.com/@teddy/post/RelayCode";
+  const main = post("RelayCode", "teddy", "主貼文", "Joeman");
+  const result = await fetchPost(target, [
+    relayUpstream(target, main, [post("c1", "someone", "第一則留言"), post("c2", "other", "第二則留言")]),
+  ]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.username, "teddy");
+  assert.equal(result.body.text, "主貼文");
+  assert.equal(result.body.topic, "Joeman");
+  assert.equal(result.body.comments.length, 2);
+  assert.equal(result.calls, 1);
+});
+
+test("新結構同樣不得在短碼對不上時拿別則交差", async () => {
+  const target = "https://www.threads.com/@teddy/post/WantedCode";
+  const wrong = relayUpstream(target, post("OtherCode", "someone", "不是目標貼文"), []);
+  const result = await fetchPost(target, [wrong, wrong, wrong]);
+
+  assert.equal(result.response.status, 404);
+  assert.equal(result.body.error, "not_found");
+  assert.equal(result.calls, 3);
+});
+
+test("同一則貼文在新舊兩種鍵下各嵌一份時只算一則", async () => {
+  const target = "https://www.threads.com/@teddy/post/DupCode";
+  const item = post("DupCode", "teddy", "只該出現一次");
+  const mixed = {
+    status: 200,
+    ok: true,
+    url: target,
+    text: async () => page([item]) + relayPage(item, []),
+  };
+  const result = await fetchPost(target, [mixed]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.username, "teddy");
+  // 去重失效的話這一份會被當成自己的留言。
+  assert.equal(result.body.comments.length, 0);
 });
