@@ -366,9 +366,14 @@ async function handlePost(target, cors) {
   let finalUrl = parsed.toString();
   let lastStatus = 0;
   let refused = false;
+  // 只有「這次抓失敗」才需要退避等待。為了補讚數而多抓的那次沒有失敗，
+  // 讓它也等 600ms 是白白拖慢每一則新結構的貼文。
+  let backoff = 0;
+  let retriedForLikes = false;
 
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (attempt > 0) await new Promise((r) => setTimeout(r, 600 * attempt));
+    if (backoff > 0) await new Promise((r) => setTimeout(r, backoff));
+    backoff = 600 * (attempt + 1);
 
     const upstream = await fetch(parsed.toString(), {
       headers: {
@@ -410,10 +415,27 @@ async function handlePost(target, cors) {
     if (!found.main) continue;
 
     if (found.exact) {
-      exact = found.main;
-      exactComments = found.comments;
-      finalUrl = upstream.url;
-      break;
+      /*
+       * 讚數只存在於舊的 `post` 結構裡；新的 `media` 結構整頁的 like_count
+       * 都是 null。Threads 目前是**隨機**回其中一種（實測同一個網址連抓六次，
+       * 一次舊、五次新），所以拿到沒有讚數的那份時，再抓一次就有機會補回來。
+       *
+       * 只多碰一次運氣：每次都是近 700KB 的頁面，用滿三次會讓多數貼文的
+       * 帶入明顯變慢，換到的機率提升卻有限。撈不到就用手上這份，
+       * 讚數空著也比讓使用者多等兩趟好。
+       */
+      const better = typeof found.main.like_count === "number";
+      if (!exact || (better && typeof exact.like_count !== "number")) {
+        exact = found.main;
+        exactComments = found.comments;
+        finalUrl = upstream.url;
+      }
+
+      if (typeof exact.like_count === "number" || retriedForLikes) break;
+      retriedForLikes = true;
+      // 這一趟沒有失敗，不必退避 —— 直接再抓一次（重試會繞過邊緣快取，
+      // 照著同一份快取重抓永遠只會拿到同一個變體）。
+      backoff = 0;
     }
   }
 
