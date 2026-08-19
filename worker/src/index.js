@@ -141,33 +141,79 @@ const MAX_SCAN = 60;
 const MAX_COMMENTS = 6;
 
 /**
+ * 貼文物件可能掛在哪些鍵底下。
+ *
+ * 原本只有 `post`。2026-08 起 Threads 開始改用另一組 Relay 查詢算繪貼文頁，
+ * 同樣的資料改掛在 `media`（主貼文）與 `node`（底下的留言）—— 實測同一則
+ * 貼文下午還是 `post`、晚上就變成 `media`，而且連抓五次都一樣，不是偶發。
+ * 只認 `post` 的話，換過去的貼文會全部變成「解析不出來」。
+ *
+ * 三個鍵一起掃、依出現位置排序，主貼文仍然排在留言前面，splitThread 的
+ * 前後關係不受影響。
+ */
+const POST_KEYS = ['"post":{', '"media":{', '"node":{'];
+
+/** 單一候選物件的長度上限。超過這個大小的幾乎都是包住整頁的外層容器。 */
+const MAX_OBJECT_CHARS = 300_000;
+
+/** 每個鍵最多檢查幾個候選，避免在超大頁面上把時間耗在 JSON.parse。 */
+const MAX_CANDIDATES = 400;
+
+/**
+ * 候選物件開頭起算多遠之內要出現 `"caption"` 才值得解析。
+ * 實測貼文物件的 caption 落在前幾千字元；放寬到 3 萬留足餘裕。
+ */
+const CAPTION_WINDOW = 30_000;
+
+/**
  * 掃出頁面裡所有的 post 物件，維持頁面出現的順序。
  *
  * 同一則貼文會在頁面的不同區塊各嵌一份（討論串本體、預載資料、推薦區），
  * 因此以 `code` 去重 —— 不去重的話留言清單會出現整排重複。
  */
 function scanPosts(html) {
+  const found = [];
+
+  for (const key of POST_KEYS) {
+    let from = 0;
+
+    for (let n = 0; n < MAX_CANDIDATES; n++) {
+      const at = html.indexOf(key, from);
+      if (at === -1) break;
+      from = at + key.length;
+
+      // `node` 在這些頁面上到處都是，絕大多數跟貼文無關。先用一個便宜的
+      // 條件篩掉，才不必對每個候選都做括號配對與 JSON.parse。
+      //
+      // 視窗要有界：不設上限的 includes 會一路掃到檔尾，幾乎永遠成立，
+      // 篩不掉任何東西還把每個候選都變成一次全文搜尋。
+      const start = at + key.length - 1;
+      const caption = html.indexOf('"caption"', start);
+      if (caption === -1 || caption - start > CAPTION_WINDOW) continue;
+
+      const raw = sliceObject(html, start);
+      if (!raw || raw.length > MAX_OBJECT_CHARS) continue;
+
+      let obj;
+      try {
+        obj = JSON.parse(raw);
+      } catch {
+        // 這一段被截斷或不是合法 JSON，換下一個候選。
+        continue;
+      }
+      if (!obj?.user?.username || obj?.caption === undefined) continue;
+
+      found.push({ at, obj });
+    }
+  }
+
+  // 依頁面位置排序，讓不同鍵掃出來的結果回到原本的先後順序。
+  found.sort((a, b) => a.at - b.at);
+
   const posts = [];
   const seen = new Set();
-  let from = 0;
-
-  while (posts.length < MAX_SCAN) {
-    const i = html.indexOf('"post":{', from);
-    if (i === -1) break;
-    from = i + 8;
-
-    const raw = sliceObject(html, i + 7);
-    if (!raw) continue;
-
-    let obj;
-    try {
-      obj = JSON.parse(raw);
-    } catch {
-      // 這一段被截斷或不是合法 JSON，換下一個候選。
-      continue;
-    }
-    if (!obj?.user?.username || obj?.caption === undefined) continue;
-
+  for (const { obj } of found) {
+    if (posts.length >= MAX_SCAN) break;
     if (obj.code) {
       if (seen.has(obj.code)) continue;
       seen.add(obj.code);
