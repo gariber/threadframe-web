@@ -418,6 +418,15 @@ type Metrics = { height: number; draw: (ctx: CanvasRenderingContext2D, top: numb
  * 兩段式算繪：先量出內容高度決定畫布大小，再真正畫。
  * 這樣「自動高度」不會裁到內容，固定比例也能把內容垂直置中。
  */
+/**
+ * 作者頭像的直徑（以基準字級為單位）。
+ *
+ * 留言的頭像比它小，但**圓心要落在同一條垂直線上** —— Threads 用一條從貼文
+ * 頭像往下連到留言頭像的細線表示「這是同一串」，兩邊的圓心沒對齊，那條線
+ * 就會歪掉，整個串文的暗示也就散了。
+ */
+const AVATAR_EM = 1.75;
+
 function layout(
   ctx: CanvasRenderingContext2D,
   post: Post,
@@ -464,7 +473,7 @@ function layout(
   // 只有一行：頭像 ＋「帳號 › 話題」＋ 時間。
   // 先前是名稱一行、@帳號一行，改成 Threads 的排法之後第二行就不需要了。
   if (headline || (style.showAvatar && assets.avatar)) {
-    const avatarSize = Math.round(size * 1.75);
+    const avatarSize = Math.round(size * AVATAR_EM);
     const nameSize = Math.round(size * 0.95);
     const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
@@ -795,23 +804,27 @@ function layout(
      * 內文**縮排對齊帳號**而不是切齊最左、每則下面都有完整的四項互動。
      */
     const avatarSize = Math.round(size * 1.05);
+    /*
+     * 留言頭像比貼文的小（它是次要角色），但圓心對齊貼文頭像的圓心，
+     * 這樣那條串文接線才是直的。左緣因此不是 0 而是往右推一點。
+     */
+    const axis = Math.round(size * AVATAR_EM) / 2;
+    const avatarX = Math.round(axis - avatarSize / 2);
     const nameSize = Math.round(size * 0.74);
     const metaSize = Math.round(size * 0.66);
     const bodySize = Math.round(size * 0.84);
     const bodyLineH = Math.round(bodySize * 1.5);
-    const labelSize = Math.round(size * 0.6);
     const statSize = Math.round(size * 0.62);
     const statIcon = Math.round(size * 0.66);
 
     const afterRule = Math.round(size * 0.6);
-    const afterLabel = Math.round(size * 0.7);
     const between = Math.round(size * 0.7);
     const afterHead = Math.round(size * 0.24);
     const beforeImage = Math.round(size * 0.34);
     const beforeStats = Math.round(size * 0.34);
 
     /** 內文與互動列都對齊帳號，不是對齊卡片左緣。 */
-    const indent = avatarSize + Math.round(size * 0.4);
+    const indent = avatarX + avatarSize + Math.round(size * 0.4);
     const textW = contentW - indent;
 
     // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
@@ -864,13 +877,21 @@ function layout(
       };
     });
 
-    const label = `THREAD REPLIES · ${items.length}`;
+    /*
+     * 不再畫「THREAD REPLIES · N」那行標籤。
+     *
+     * Threads 自己沒有這種標頭。它靠一條從貼文頭像連下來的細線表示「底下是
+     * 同一串」，而標籤佔掉一整行，又是卡片上唯一的英文，在中文貼文上很突兀。
+     *
+     * 那條接線這裡**畫不出來**：Threads 的貼文內文縮排在頭像右邊，線可以沿著
+     * 左側空白一路往下；這張卡片的內文是切齊左緣的，線畫下去會穿過內文。
+     * 要有接線就得把整則貼文的內文也縮排，那會讓每張卡片的內文變窄、變長，
+     * 代價比一條線大得多。改用「留言頭像與貼文頭像圓心對齊」來暗示同一串。
+     */
 
     blocks.push({
       height:
         afterRule +
-        labelSize +
-        afterLabel +
         items.reduce((sum, i) => sum + i.height, 0) +
         (items.length - 1) * between,
       draw: (c, top) => {
@@ -881,19 +902,14 @@ function layout(
         c.lineTo(contentW, top + 1);
         c.stroke();
 
-        // 留言區的標頭。貼文與留言一起出現時，少了它就分不出下面是誰在說話。
         c.textBaseline = "top";
-        c.fillStyle = softInk(ink, 0.4);
-        c.font = font(labelSize, 700);
-        c.fillText(label, 0, top + afterRule);
-
-        let y = top + afterRule + labelSize + afterLabel;
+        let y = top + afterRule;
         items.forEach((item, itemIndex) => {
           // Threads 的留言列標的是帳號，不是顯示名稱。沒有帳號時才退回名稱，
           // 這樣手動加的留言仍然有東西可以顯示。
           const handle = item.comment.handle.trim().replace(/^@/, "");
           const author = style.maskIdentity ? "匿名" : handle || item.comment.name.trim();
-          drawAvatar(c, item.avatar, 0, y, avatarSize, ink, author, style.maskIdentity);
+          drawAvatar(c, item.avatar, avatarX, y, avatarSize, ink, author, style.maskIdentity);
 
           // 帳號與時間同一行，用基線定位讓兩個不同字級的字身對齊。
           c.textBaseline = "alphabetic";

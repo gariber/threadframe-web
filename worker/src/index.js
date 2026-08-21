@@ -296,11 +296,35 @@ const CELL_WIDTH = 540;
  * 這裡差很多 —— 實測同一張圖 1080px 是 180KB、640px 只有 72KB，
  * 而它在三張的格狀排列裡實際只畫到 320px 寬。
  */
+/**
+ * candidates 裡混著**被裁過**的版本。
+ *
+ * 同一張 1179x2556 的手機截圖，1080 那張的網址是
+ * `stp=c0.688.1179.1179a_..._s1080x1080`（從 y=688 切一個 1179 見方再縮），
+ * 640 那張卻是 `p640x640`（完整塞進去、不裁）。只照寬度挑「剛好夠用的最小張」
+ * 會挑到前者，卡片上就會出現莫名其妙被切掉一半的圖，而且原圖越長越嚴重。
+ *
+ * 所以先用比例篩：跟原圖長寬比對不上的直接不考慮。原圖尺寸不明時退回全部，
+ * 至少維持原本的行為。
+ */
+function uncropped(node, list) {
+  const w = node?.original_width;
+  const h = node?.original_height;
+  if (!w || !h) return list;
+
+  const want = w / h;
+  const same = list.filter((c) => c.height && Math.abs(c.width / c.height - want) / want < 0.02);
+  return same.length > 0 ? same : list;
+}
+
 function pickImage(node, minWidth) {
   const list = node?.image_versions2?.candidates;
   if (!Array.isArray(list)) return null;
 
-  const usable = list.filter((c) => c?.url && c?.width);
+  const usable = uncropped(
+    node,
+    list.filter((c) => c?.url && c?.width),
+  );
   if (usable.length === 0) return null;
 
   const enough = usable.filter((c) => c.width >= minWidth).sort((a, b) => a.width - b.width);

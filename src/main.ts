@@ -13,6 +13,7 @@ import {
 } from "./config";
 import {
   fetchThreadsPost,
+  FetchPostError,
   formatCount,
   formatRelativeTime,
   formatTime,
@@ -568,6 +569,57 @@ function labelled(text: string, control: HTMLElement, stack = false): HTMLLabelE
   return label;
 }
 
+/**
+ * 用一則留言的連結填滿指定的留言欄位。
+ *
+ * 拿的是同一支取文服務 —— 對 Threads 來說留言就是一則貼文，回傳的欄位
+ * 完全夠用，所以這裡只做欄位對應，不必動 Worker。
+ */
+async function fillCommentFrom(url: string, index: number): Promise<void> {
+  const parsed = parseThreadsUrl(url);
+  if (!parsed) throw new FetchPostError("這不是一個 Threads 貼文連結");
+
+  const data = await fetchThreadsPost(parsed.url);
+  const comment = post.comments[index];
+  if (!comment) return;
+
+  comment.name = data.name || data.username;
+  comment.handle = data.username;
+  comment.text = data.text;
+  comment.time = formatRelativeTime(data.takenAt);
+  comment.likes = formatCount(data.likes);
+  comment.replies = formatCount(data.replies);
+  comment.reposts = formatCount(data.reposts);
+  comment.shares = formatCount(data.shares);
+
+  // 留言區塊預設不畫在卡片上。帶入了卻看不到，使用者會以為沒成功。
+  if (style.commentLimit < index + 1) {
+    style.commentLimit = index + 1;
+    $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
+    commit();
+  }
+
+  // 圖片慢，先讓文字出現；載到了再補畫一次。
+  if (data.avatar) {
+    urlToImage(proxyImage(data.avatar))
+      .then((img) => {
+        assets.commentAvatars[index] = img;
+        comment.avatar = img.src;
+        draw();
+      })
+      .catch(() => {});
+  }
+  // 留言在卡片上只畫一張附圖，跟 Worker 對留言的處理一致。
+  if (data.images[0]) {
+    urlToImage(proxyImage(data.images[0]))
+      .then((img) => {
+        assets.commentImages[index] = img;
+        draw();
+      })
+      .catch(() => {});
+  }
+}
+
 function paintComments(): void {
   commentList.replaceChildren();
 
@@ -665,7 +717,55 @@ function paintComments(): void {
     media.className = "triple";
     media.append(labelled("頭像", avatar), labelled("附圖", image));
 
-    row.append(head, who, labelled("內文", text, true), bottom, counters, media);
+    /*
+     * 留言也可以貼連結帶入。
+     *
+     * Threads 的留言有自己的網址，讀得到完整內容，但**留言頁上沒有原貼文**
+     * （實測 reply_to_author 與 root_post_author 都是 null），所以沒辦法只給
+     * 一個留言連結就湊出「原貼文＋這則留言」。分成兩步反而每一步都拿得到：
+     * 上面貼原貼文的連結，這裡貼留言的連結。
+     *
+     * 這也解掉自動帶入只收讚數前幾名留言的限制 —— 想放第 20 名那則，
+     * 貼它的連結就行。
+     */
+    const link = document.createElement("input");
+    link.type = "url";
+    link.placeholder = "貼上這則留言的連結";
+    link.autocomplete = "off";
+    link.spellcheck = false;
+
+    const load = document.createElement("button");
+    load.type = "button";
+    load.textContent = "帶入";
+
+    const status = document.createElement("p");
+    status.className = "hint";
+
+    load.addEventListener("click", async () => {
+      const url = link.value.trim();
+      if (!url) return;
+      load.disabled = true;
+      status.textContent = "讀取留言中…";
+      status.classList.remove("err");
+      try {
+        await fillCommentFrom(url, index);
+        link.value = "";
+        status.textContent = "";
+        paintComments();
+        draw();
+      } catch (e) {
+        status.textContent = e instanceof Error ? e.message : String(e);
+        status.classList.add("err");
+      } finally {
+        load.disabled = false;
+      }
+    });
+
+    const linkRow = document.createElement("div");
+    linkRow.className = "comment-link";
+    linkRow.append(link, load);
+
+    row.append(head, linkRow, status, who, labelled("內文", text, true), bottom, counters, media);
     commentList.append(row);
   });
 

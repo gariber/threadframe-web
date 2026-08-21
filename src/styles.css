@@ -560,3 +560,15 @@ fieldset.ratio label {
   color: var(--ink);
   border-color: var(--ground);
 }
+
+/* 留言的「貼連結帶入」列：輸入框吃滿剩餘寬度，按鈕維持原寬。 */
+.comment-link {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.comment-link input {
+  flex: 1;
+  min-width: 0;
+}
