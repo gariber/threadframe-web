@@ -54,8 +54,8 @@
         </div>
         <p class="err" id="intake-status" hidden></p>
         <p class="hint" id="intake-hint">
-          貼上連結會自動帶入作者、話題、頭像、內文、統計與圖片。也可以直接貼整段文字，
-          或在下面的欄位手動填。
+          貼上連結會自動帶入作者、話題、頭像、內文、統計與圖片。
+          讀不到的時候，改成複製整則貼文的文字貼進來也可以。
         </p>
       </div>
 
@@ -124,33 +124,6 @@
             下載尺寸固定 1080px 寬，不隨這台裝置的畫面寬度變動。預覽只是縮小顯示，不影響輸出。
             比例是<strong>最小高度</strong>：內容比它長時卡片會自己往下長，不會被裁掉。
           </p>
-        </div>
-      </details>
-
-      <details class="sheet">
-        <summary class="sheet-head">貼文內容</summary>
-        <div class="sheet-body">
-          <label>名稱<input id="f-name" type="text" autocomplete="off" /></label>
-          <label>話題<input id="f-topic" type="text" autocomplete="off" placeholder="例如：喜劇開場（不含 #）" /></label>
-          <label>帳號<input id="f-handle" type="text" autocomplete="off" placeholder="不含 @" /></label>
-          <label class="stack">
-            內文
-            <textarea id="f-text" rows="5"></textarea>
-          </label>
-          <label>時間<input id="f-time" type="text" autocomplete="off" placeholder="2 小時" /></label>
-          <div class="triple">
-            <label>讚<input id="f-likes" type="text" inputmode="numeric" /></label>
-            <label>留言<input id="f-replies" type="text" inputmode="numeric" /></label>
-            <label>轉發<input id="f-reposts" type="text" inputmode="numeric" /></label>
-            <label>分享<input id="f-shares" type="text" inputmode="numeric" /></label>
-          </div>
-          <label>網址<input id="f-url" type="url" autocomplete="off" /></label>
-          <div class="triple">
-            <label class="file">頭像<input id="f-avatar" type="file" accept="image/*" /></label>
-            <label class="file">貼文圖片<input id="f-images" type="file" accept="image/*" multiple /></label>
-            <button id="clear-images" type="button">清除圖片</button>
-          </div>
-          <p class="hint" id="image-count"></p>
         </div>
       </details>
 

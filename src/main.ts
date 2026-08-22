@@ -204,7 +204,6 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   assets.commentAvatars = post.comments.map(() => null);
   assets.commentImages = post.comments.map(() => null);
 
-  syncFields();
   paintComments();
   draw();
 
@@ -232,7 +231,6 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
           // 舊版 Worker 不回 mediaCount，退回「收到幾張就是幾張」——
           // 這樣不會憑空少報，只是畫不出 +N。
           assets.mediaTotal = data.mediaCount ?? data.images.length;
-          updateImageCount();
           draw();
         })
       : Promise.resolve();
@@ -276,7 +274,7 @@ async function autoFill(url: string): Promise<void> {
   } catch (e) {
     setStatus(
       "err",
-      `${(e as Error).message} 你仍然可以直接貼上貼文文字，或在下面的欄位手動填。`,
+      `${(e as Error).message} 你仍然可以改成複製整則貼文的文字貼上來。`,
     );
   } finally {
     applyBtn.disabled = false;
@@ -313,13 +311,11 @@ function applyIntake(): void {
   if (parsed.shares !== undefined) post.shares = parsed.shares;
   if (parsed.url !== undefined) post.url = parsed.url;
 
-  syncFields();
-
   // 只貼網址是最常見的用法，但網頁讀不到貼文內容 —— 與其默默把連結
   // 當成內文畫進卡片，不如直接說清楚為什麼沒有東西出現。
   if (pastedContent) {
     setStatus("none");
-    // 內容已經進到下面的欄位，留著原始貼上區只會讓人以為還沒帶入。
+    // 內容已經畫進卡片，留著原始貼上區只會讓人以為還沒帶入。
     intake.value = "";
   } else if (parsed.url) {
     setStatus(
@@ -336,7 +332,10 @@ function applyIntake(): void {
     $("worker-advanced").setAttribute("open", "");
     sheet.scrollIntoView({ behavior: "smooth", block: "center" });
   } else {
-    setStatus("err", "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。");
+    setStatus(
+      "err",
+      "看不出這段裡的貼文。請複製整則貼文的文字（作者與內文都要）再貼一次。",
+    );
   }
 
   draw();
@@ -355,74 +354,6 @@ $("paste").addEventListener("click", async () => {
     // Safari 未授權或非安全來源：使用者自己長按貼上即可。
     intake.focus();
   }
-});
-
-// ── 貼文欄位 ─────────────────────────────────────────────
-const fields: [string, keyof Post][] = [
-  ["f-name", "name"],
-  ["f-topic", "topic"],
-  ["f-handle", "handle"],
-  ["f-text", "text"],
-  ["f-time", "time"],
-  ["f-likes", "likes"],
-  ["f-replies", "replies"],
-  ["f-reposts", "reposts"],
-  ["f-shares", "shares"],
-  ["f-url", "url"],
-];
-
-for (const [id, key] of fields) {
-  const el = $<HTMLInputElement | HTMLTextAreaElement>(id);
-  el.addEventListener("input", () => {
-    (post[key] as string) = el.value;
-    // 自己動手改過時間之後，切換時間格式就不該再把它換算掉 ——
-    // 忘了斷開的話，使用者打的字會在切格式時無聲消失。
-    if (key === "time") post.takenAt = null;
-    draw();
-  });
-}
-
-function syncFields(): void {
-  for (const [id, key] of fields) {
-    $<HTMLInputElement | HTMLTextAreaElement>(id).value = post[key] as string;
-  }
-  updateImageCount();
-}
-
-function updateImageCount(): void {
-  const n = assets.images.length;
-  if (n === 0) {
-    $("image-count").textContent = "";
-    return;
-  }
-  // 原貼文比帶進來的多時要講出來 —— 「最多 4 張」是規則，
-  // 「這一則原本有幾張」是事實，只講規則使用者仍然不知道自己漏了什麼。
-  const extra = assets.mediaTotal > n ? `，原貼文共 ${assets.mediaTotal} 則` : "";
-  $("image-count").textContent = `已加入 ${n} 張貼文圖片（最多 4 張${extra}）`;
-}
-
-$<HTMLInputElement>("f-avatar").addEventListener("change", async (e) => {
-  const file = (e.target as HTMLInputElement).files?.[0];
-  if (!file) return;
-  assets.avatar = await fileToImage(file);
-  post.avatar = assets.avatar.src;
-  draw();
-});
-
-$<HTMLInputElement>("f-images").addEventListener("change", async (e) => {
-  const files = [...((e.target as HTMLInputElement).files ?? [])].slice(0, 4);
-  assets.images = await Promise.all(files.map(fileToImage));
-  assets.mediaTotal = assets.images.length;
-  updateImageCount();
-  draw();
-});
-
-$("clear-images").addEventListener("click", () => {
-  assets.images = [];
-  assets.mediaTotal = 0;
-  $<HTMLInputElement>("f-images").value = "";
-  updateImageCount();
-  draw();
 });
 
 // ── 取文服務設定 ─────────────────────────────────────────
@@ -1183,6 +1114,5 @@ paintAllSwatches();
 paintPresets();
 paintComments();
 syncControls();
-syncFields();
 readShareTarget();
 draw();
