@@ -439,13 +439,30 @@ function layout(
   const gap = Math.round(size * 0.7);
   const blocks: Metrics[] = [];
 
+  const commentLimit = Math.max(0, Math.min(MAX_COMMENTS, style.commentLimit));
+  const comments =
+    commentLimit > 0
+      ? post.comments
+          .map((comment, index) => ({ comment, index }))
+          .filter(({ comment }) => comment.text.trim() || comment.name.trim())
+          .slice(0, commentLimit)
+      : [];
+
+  /** 展示中的留言裡，有沒有任何一則是貼連結指定的。 */
+  const linked = comments.some(({ comment }) => comment.fromLink);
+
   /*
-   * Threads 的排法：頭像自己佔左邊一欄，內文、圖片、時間、統計與底下的留言
-   * 全部縮排對齊帳號，左邊那條空白就留給串文的接線走。
+   * Threads 的串文排法：頭像自己佔左邊一欄，內文、圖片、時間、統計與底下的
+   * 留言全部縮排對齊帳號，左邊那條空白留給接線走。
    *
-   * 沒有頭像時不縮排 —— 沒有頭像就沒有那一欄，硬縮排只會讓左邊空一塊。
+   * **只有在貼了留言連結時才這樣排。** 那是「我要分享的是這則回覆」的情境，
+   * 縮排與接線一起才讀得出串文關係。一般的卡片沒有那層關係，內容靠右只是
+   * 平白讓每一行變窄、圖片變小。
+   *
+   * 沒有頭像時也不縮排 —— 沒有頭像就沒有那一欄，硬縮排只會讓左邊空一塊。
    */
-  const bodyIndent = style.showAvatar ? Math.round(size * AVATAR_EM) + Math.round(size * 0.5) : 0;
+  const bodyIndent =
+    linked && style.showAvatar ? Math.round(size * AVATAR_EM) + Math.round(size * 0.5) : 0;
   const bodyW = contentW - bodyIndent;
 
   /** 頭像那一欄的中心線；串文接線就畫在這條線上。 */
@@ -799,15 +816,6 @@ function layout(
   }
 
   // ── 留言 ───────────────────────────────────────────────
-  const commentLimit = Math.max(0, Math.min(MAX_COMMENTS, style.commentLimit));
-  const comments =
-    commentLimit > 0
-      ? post.comments
-          .map((comment, index) => ({ comment, index }))
-          .filter(({ comment }) => comment.text.trim() || comment.name.trim())
-          .slice(0, commentLimit)
-      : [];
-
   if (comments.length > 0) {
     /*
      * 版面照 Threads 上留言的樣子：
@@ -826,7 +834,11 @@ function layout(
      * 留言頭像比貼文的小（它是次要角色），但圓心對齊貼文頭像的圓心，
      * 這樣那條串文接線才是直的。左緣因此不是 0 而是往右推一點。
      */
-    const avatarX = Math.round(railX - avatarSize / 2);
+    /*
+     * 有接線時，留言頭像的圓心要對齊貼文頭像的圓心，線才是直的；沒有接線時
+     * 就切齊卡片左緣，跟貼文其他內容一樣。
+     */
+    const avatarX = linked ? Math.round(railX - avatarSize / 2) : 0;
     const nameSize = Math.round(size * 0.74);
     const metaSize = Math.round(size * 0.66);
     const bodySize = Math.round(size * 0.84);
@@ -840,8 +852,11 @@ function layout(
     const beforeImage = Math.round(size * 0.34);
     const beforeStats = Math.round(size * 0.34);
 
-    /** 留言的內文與貼文的內文對齊同一條線 —— 兩者是同一串，不該各縮各的。 */
-    const indent = bodyIndent;
+    /*
+     * 有接線時，留言的內文與貼文的內文對齊同一條線 —— 兩者是同一串，不該各縮
+     * 各的。沒有接線時貼文的內文切齊左緣，留言就退回自己的縮排（對齊帳號）。
+     */
+    const indent = linked ? bodyIndent : avatarX + avatarSize + Math.round(size * 0.4);
     const textW = contentW - indent;
 
     // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
@@ -856,9 +871,6 @@ function layout(
     const statLineH = Math.max(statIcon, lineHeight(ctx, statSize));
 
     ctx.font = font(bodySize, 400);
-    /** 展示中的留言裡，有沒有任何一則是貼連結指定的。 */
-    const linked = comments.some(({ comment }) => comment.fromLink);
-
     const items = comments.map(({ comment, index }) => {
       const lines = comment.text.trim() ? wrapText(ctx, comment.text.trim(), textW) : [];
 
