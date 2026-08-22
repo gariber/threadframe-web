@@ -583,6 +583,7 @@ async function fillCommentFrom(url: string, index: number): Promise<void> {
   const comment = post.comments[index];
   if (!comment) return;
 
+  comment.fromLink = true;
   comment.name = data.name || data.username;
   comment.handle = data.username;
   comment.text = data.text;

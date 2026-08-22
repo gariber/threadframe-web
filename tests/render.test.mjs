@@ -196,7 +196,45 @@ async function countForeign(page, box, rgb) {
   );
 }
 
+/**
+ * 假的取文服務。
+ *
+ * 必須跑在另一個 port：app 會把「跟自己同一個 host」的位址判定成本站網址而
+ * 拒絕採用。用 localhost 而不是 127.0.0.1，因為驗證只放行 https 或 localhost。
+ *
+ * 有了它，「貼留言連結」這條路就能離線測 —— 不必真的連 Threads，測試也不會
+ * 因為某則樣本貼文被刪掉而壞掉。
+ */
+function serveFakeWorker() {
+  const body = JSON.stringify({
+    url: "https://www.threads.com/@someone/post/FakeCode",
+    username: "someone",
+    name: "Someone",
+    topic: null,
+    avatar: null,
+    text: "貼連結帶進來的留言",
+    takenAt: 1787000000,
+    likes: 42,
+    replies: 1,
+    reposts: 2,
+    shares: 3,
+    images: [],
+    mediaCount: 0,
+    comments: [],
+  });
+  const server = createServer((req, res) => {
+    res.writeHead(200, {
+      "content-type": "application/json; charset=utf-8",
+      "access-control-allow-origin": "*",
+    });
+    res.end(body);
+  });
+  return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok(server)));
+}
+
 const server = await serveDist();
+const fake = await serveFakeWorker();
+const fakeWorker = `http://localhost:${fake.address().port}`;
 const origin = `http://127.0.0.1:${server.address().port}/`;
 const browser = await chromium.launch({
   // CI 與這個容器的 Playwright 版本未必對得上內建路徑，允許外部指定。
@@ -206,6 +244,7 @@ const browser = await chromium.launch({
 test.after(async () => {
   await browser.close();
   server.close();
+  fake.close();
 });
 
 test("單張維持原比例、不裁切，且佔滿內容寬度", async () => {
@@ -302,4 +341,103 @@ test("原貼文張數與顯示張數相同時不該出現 +N", async () => {
 
   assert.deepEqual(errors, []);
   assert.ok(badge < 100, `沒有東西被藏起來卻畫了 +N（異色像素 ${badge}）`);
+});
+
+/**
+ * 那條從貼文頭像連到留言頭像的細線，只在「貼了留言連結」時才該出現。
+ *
+ * 它是在說「我要分享的是這則回覆」。自動帶入的熱門留言只是附帶資訊，畫了線
+ * 反而像在強調它 —— 多數卡片上會變成多餘的裝飾，這是實際用起來的回饋。
+ */
+async function railPixels(page) {
+  return page.evaluate(() => {
+    const c = document.querySelector("#canvas");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    // 頭像那一欄的中心線；掃一條窄帶就夠，兩側都是留白。
+    const avatarAxis = Math.round(c.width * 0.132);
+    let n = 0;
+    for (let y = 0; y < c.height; y++) {
+      for (let x = avatarAxis - 6; x <= avatarAxis + 6; x++) {
+        const i = (y * c.width + x) * 4;
+        // 線比背景亮、比文字暗，而且是灰的（三個通道接近）。
+        if (
+          d[i] > 45 &&
+          d[i] < 150 &&
+          Math.abs(d[i] - d[i + 1]) < 14 &&
+          Math.abs(d[i + 1] - d[i + 2]) < 14
+        ) {
+          n++;
+        }
+      }
+    }
+    return n;
+  });
+}
+
+/** 帶入一則純文字貼文並顯示一則留言，留言內容由 fill 決定怎麼填。 */
+async function withOneComment(page, fill) {
+  await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+  // 各區塊預設是收合的 <details>，不展開的話裡面的控制項點不到。
+  await page.evaluate(() => {
+    document.querySelectorAll("details").forEach((d) => (d.open = true));
+  });
+  // 貼文要夠長，貼文頭像與留言頭像之間才有一段距離 —— 太短的話接線只有
+  // 幾十像素，量不出跟沒有線的差別。
+  await page.fill(
+    "#intake",
+    ["接線測試", "@tester", "", "第一行內容", "第二行內容", "第三行內容", "第四行內容"].join("\n"),
+  );
+  await page.evaluate(() => document.querySelector("#apply").click());
+  await page.waitForTimeout(600);
+
+  await page.evaluate(() => document.querySelector("#add-comment").click());
+  await fill(page);
+
+  await page.evaluate(() => {
+    const sel = document.querySelector("#s-comment-limit");
+    sel.value = "1";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(800);
+  return railPixels(page);
+}
+
+/*
+ * 用「兩種情況的差」而不是絕對值。
+ *
+ * 頭像本身就落在那條軸線上（沒上傳頭像時畫的是字母圓底），絕對值會把圓圈
+ * 一起數進去，兩邊都是一千多，判不出有沒有線。差值才乾淨：唯一的變因就是
+ * 那條接線。
+ */
+test("串文接線只在貼了留言連結時出現", async () => {
+  const manualPage = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const manual = await withOneComment(manualPage, async (p) => {
+    await p.evaluate(() => {
+      const area = document.querySelector(".comment-row textarea");
+      area.value = "手動打的留言";
+      area.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  });
+  await manualPage.close();
+
+  const linkedPage = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const linked = await withOneComment(linkedPage, async (p) => {
+    await p.evaluate(() => {
+      const input = document.querySelector(".comment-link input");
+      input.value = "https://www.threads.com/@someone/post/FakeCode";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      document.querySelector(".comment-link button").click();
+    });
+    await p.waitForFunction(
+      () => document.querySelector(".comment-row textarea")?.value?.includes("貼連結帶進來"),
+      { timeout: 15000 },
+    );
+    await p.waitForTimeout(500);
+  });
+  await linkedPage.close();
+
+  assert.ok(
+    linked > manual + 200,
+    `接線沒有隨「有沒有貼連結」改變（手動 ${manual}、貼連結 ${linked}）`,
+  );
 });
