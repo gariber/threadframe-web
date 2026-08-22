@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.local
 .DS_Store
+
+# wrangler dev 的本機暫存（快取、miniflare 狀態、打包產物）
+worker/.wrangler/

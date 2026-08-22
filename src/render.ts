@@ -418,6 +418,15 @@ type Metrics = { height: number; draw: (ctx: CanvasRenderingContext2D, top: numb
  * 兩段式算繪：先量出內容高度決定畫布大小，再真正畫。
  * 這樣「自動高度」不會裁到內容，固定比例也能把內容垂直置中。
  */
+/**
+ * 作者頭像的直徑（以基準字級為單位）。
+ *
+ * 留言的頭像比它小，但**圓心要落在同一條垂直線上** —— Threads 用一條從貼文
+ * 頭像往下連到留言頭像的細線表示「這是同一串」，兩邊的圓心沒對齊，那條線
+ * 就會歪掉，整個串文的暗示也就散了。
+ */
+const AVATAR_EM = 1.75;
+
 function layout(
   ctx: CanvasRenderingContext2D,
   post: Post,
@@ -429,6 +438,21 @@ function layout(
   const size = style.textSize;
   const gap = Math.round(size * 0.7);
   const blocks: Metrics[] = [];
+
+  /*
+   * Threads 的排法：頭像自己佔左邊一欄，內文、圖片、時間、統計與底下的留言
+   * 全部縮排對齊帳號，左邊那條空白就留給串文的接線走。
+   *
+   * 沒有頭像時不縮排 —— 沒有頭像就沒有那一欄，硬縮排只會讓左邊空一塊。
+   */
+  const bodyIndent = style.showAvatar ? Math.round(size * AVATAR_EM) + Math.round(size * 0.5) : 0;
+  const bodyW = contentW - bodyIndent;
+
+  /** 頭像那一欄的中心線；串文接線就畫在這條線上。 */
+  const railX = Math.round(size * AVATAR_EM) / 2;
+
+  /** 作者頭像的下緣，由作者列在畫的時候記下來，留言區才知道接線從哪裡開始。 */
+  let avatarBottom = 0;
 
   /*
    * 作者列標的是**帳號**，不是顯示名稱 —— Threads 自己就是這樣排的。
@@ -464,7 +488,7 @@ function layout(
   // 只有一行：頭像 ＋「帳號 › 話題」＋ 時間。
   // 先前是名稱一行、@帳號一行，改成 Threads 的排法之後第二行就不需要了。
   if (headline || (style.showAvatar && assets.avatar)) {
-    const avatarSize = Math.round(size * 1.75);
+    const avatarSize = Math.round(size * AVATAR_EM);
     const nameSize = Math.round(size * 0.95);
     const avatarGap = Math.round(size * 0.5);
     ctx.font = font(nameSize, 700);
@@ -487,6 +511,7 @@ function layout(
             author,
             style.maskIdentity,
           );
+          avatarBottom = cy + avatarSize / 2;
           x += avatarSize + avatarGap;
         }
 
@@ -507,7 +532,7 @@ function layout(
   const text = post.text.trim();
   if (text) {
     ctx.font = font(size, 400);
-    const lines = wrapText(ctx, text, contentW);
+    const lines = wrapText(ctx, text, bodyW);
     const lineH = Math.round(size * 1.55);
     blocks.push({
       height: lines.length * lineH,
@@ -516,7 +541,7 @@ function layout(
         c.font = font(size, 400);
         c.textBaseline = "top";
         lines.forEach((line, i) => {
-          c.fillText(line, 0, top + i * lineH + (lineH - size) / 2);
+          c.fillText(line, bodyIndent, top + i * lineH + (lineH - size) / 2);
         });
       },
     });
@@ -536,8 +561,8 @@ function layout(
     if (images.length === 1) {
       // 單張維持原始比例，不裁切。
       const img = images[0];
-      height = Math.min((contentW * img.naturalHeight) / img.naturalWidth, contentW * 1.4);
-      cells = [{ x: 0, y: 0, w: contentW, h: height }];
+      height = Math.min((bodyW * img.naturalHeight) / img.naturalWidth, bodyW * 1.4);
+      cells = [{ x: 0, y: 0, w: bodyW, h: height }];
       single = true;
     } else {
       /*
@@ -560,18 +585,18 @@ function layout(
         const second = images[i + 1];
 
         if (!second) {
-          const oddHeight = (contentW - gap) / 2;
-          cells.push({ x: 0, y, w: contentW, h: oddHeight });
+          const oddHeight = (bodyW - gap) / 2;
+          cells.push({ x: 0, y, w: bodyW, h: oddHeight });
           y += oddHeight;
           continue;
         }
 
         const firstRatio = isPortrait(first) ? portraitRatio : 1;
         const secondRatio = isPortrait(second) ? portraitRatio : 1;
-        const rowHeight = (contentW - gap) / (firstRatio + secondRatio);
+        const rowHeight = (bodyW - gap) / (firstRatio + secondRatio);
         const firstWidth = rowHeight * firstRatio;
-        // 讓第二格吃掉浮點數尾差，右緣一定與 contentW 齊平。
-        const secondWidth = contentW - gap - firstWidth;
+        // 讓第二格吃掉浮點數尾差，右緣一定與 bodyW 齊平。
+        const secondWidth = bodyW - gap - firstWidth;
 
         cells.push(
           { x: 0, y, w: firstWidth, h: rowHeight },
@@ -602,19 +627,21 @@ function layout(
         // 每一格各自裁圓角。多張之間有間距，整塊套一個外框圓角是看不出來的。
         images.forEach((img, i) => {
           const cell = cells[i];
+          const cx = bodyIndent + cell.x;
           c.save();
-          roundRect(c, cell.x, top + cell.y, cell.w, cell.h, single ? corner : corner * 0.75);
+          roundRect(c, cx, top + cell.y, cell.w, cell.h, single ? corner : corner * 0.75);
           c.clip();
           c.fillStyle = softInk(ink, 0.06);
-          c.fillRect(cell.x, top + cell.y, cell.w, cell.h);
+          c.fillRect(cx, top + cell.y, cell.w, cell.h);
           // 多圖填滿依方向算出的卡位；單張仍維持完整畫面。
           const place = single ? drawContain : drawCover;
-          place(c, img, cell.x, top + cell.y, cell.w, cell.h);
+          place(c, img, cx, top + cell.y, cell.w, cell.h);
           c.restore();
         });
 
         if (hidden > 0) {
           const cell = cells[images.length - 1];
+          const badgeLeft = bodyIndent + cell.x;
           const label = `+${hidden}`;
           const fontSize = Math.round(size * 0.8);
           c.font = font(fontSize, 700);
@@ -623,7 +650,7 @@ function layout(
           const w = ctx.measureText(label).width + padX * 2;
           const h = fontSize + padY * 2;
           const margin = Math.round(size * 0.35);
-          const x = cell.x + cell.w - w - margin;
+          const x = badgeLeft + cell.w - w - margin;
           const y = top + cell.y + cell.h - h - margin;
 
           c.save();
@@ -654,7 +681,7 @@ function layout(
         c.fillStyle = softInk(ink, 0.45);
         c.font = font(timeSize, 400);
         c.textBaseline = "top";
-        c.fillText(timeText, 0, top);
+        c.fillText(timeText, bodyIndent, top);
       },
     });
   }
@@ -697,7 +724,7 @@ function layout(
     };
 
     const naturalW = measureRow(baseIconSize, baseValueSize, baseIconGap, baseDotGap);
-    const safeW = Math.max(1, contentW - Math.round(size * 0.4));
+    const safeW = Math.max(1, bodyW - Math.round(size * 0.4));
     const fit = Math.min(1, safeW / Math.max(1, naturalW));
 
     blocks.push({
@@ -707,7 +734,7 @@ function layout(
         c.strokeStyle = softInk(ink, 0.13);
         c.lineWidth = 2;
         c.beginPath();
-        c.moveTo(0, top + 1);
+        c.moveTo(bodyIndent, top + 1);
         c.lineTo(contentW, top + 1);
         c.stroke();
 
@@ -734,7 +761,7 @@ function layout(
         c.textBaseline = "alphabetic";
         const capH = c.measureText("0").actualBoundingBoxAscent;
         const textBase = cy + capH / 2;
-        let x = 0;
+        let x = bodyIndent;
 
         stats.forEach(([icon, value], index) => {
           if (index > 0) {
@@ -795,23 +822,26 @@ function layout(
      * 內文**縮排對齊帳號**而不是切齊最左、每則下面都有完整的四項互動。
      */
     const avatarSize = Math.round(size * 1.05);
+    /*
+     * 留言頭像比貼文的小（它是次要角色），但圓心對齊貼文頭像的圓心，
+     * 這樣那條串文接線才是直的。左緣因此不是 0 而是往右推一點。
+     */
+    const avatarX = Math.round(railX - avatarSize / 2);
     const nameSize = Math.round(size * 0.74);
     const metaSize = Math.round(size * 0.66);
     const bodySize = Math.round(size * 0.84);
     const bodyLineH = Math.round(bodySize * 1.5);
-    const labelSize = Math.round(size * 0.6);
     const statSize = Math.round(size * 0.62);
     const statIcon = Math.round(size * 0.66);
 
     const afterRule = Math.round(size * 0.6);
-    const afterLabel = Math.round(size * 0.7);
     const between = Math.round(size * 0.7);
     const afterHead = Math.round(size * 0.24);
     const beforeImage = Math.round(size * 0.34);
     const beforeStats = Math.round(size * 0.34);
 
-    /** 內文與互動列都對齊帳號，不是對齊卡片左緣。 */
-    const indent = avatarSize + Math.round(size * 0.4);
+    /** 留言的內文與貼文的內文對齊同一條線 —— 兩者是同一串，不該各縮各的。 */
+    const indent = bodyIndent;
     const textW = contentW - indent;
 
     // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
@@ -864,36 +894,55 @@ function layout(
       };
     });
 
-    const label = `THREAD REPLIES · ${items.length}`;
+    /*
+     * 不再畫「THREAD REPLIES · N」那行標籤。
+     *
+     * Threads 自己沒有這種標頭。它靠一條從貼文頭像連下來的細線表示「底下是
+     * 同一串」，而標籤佔掉一整行，又是卡片上唯一的英文，在中文貼文上很突兀。
+     *
+     * 那條接線這裡**畫不出來**：Threads 的貼文內文縮排在頭像右邊，線可以沿著
+     * 左側空白一路往下；這張卡片的內文是切齊左緣的，線畫下去會穿過內文。
+     * 要有接線就得把整則貼文的內文也縮排，那會讓每張卡片的內文變窄、變長，
+     * 代價比一條線大得多。改用「留言頭像與貼文頭像圓心對齊」來暗示同一串。
+     */
 
     blocks.push({
       height:
         afterRule +
-        labelSize +
-        afterLabel +
         items.reduce((sum, i) => sum + i.height, 0) +
         (items.length - 1) * between,
       draw: (c, top) => {
         c.strokeStyle = softInk(ink, 0.13);
         c.lineWidth = 2;
         c.beginPath();
-        c.moveTo(0, top + 1);
+        c.moveTo(bodyIndent, top + 1);
         c.lineTo(contentW, top + 1);
         c.stroke();
 
-        // 留言區的標頭。貼文與留言一起出現時，少了它就分不出下面是誰在說話。
-        c.textBaseline = "top";
-        c.fillStyle = softInk(ink, 0.4);
-        c.font = font(labelSize, 700);
-        c.fillText(label, 0, top + afterRule);
+        /*
+         * 串文接線：從貼文頭像的下緣一路接到第一則留言的頭像。
+         *
+         * 起點是作者列在畫的時候記下來的實際位置 —— 中間隔著內文、圖片、
+         * 時間與統計，高度隨內容變動，寫死算不準。
+         */
+        if (style.showAvatar && avatarBottom > 0) {
+          c.strokeStyle = softInk(ink, 0.16);
+          c.lineWidth = Math.max(2, Math.round(size * 0.07));
+          c.lineCap = "round";
+          c.beginPath();
+          c.moveTo(railX, avatarBottom + Math.round(size * 0.3));
+          c.lineTo(railX, top + afterRule + avatarSize / 2);
+          c.stroke();
+        }
 
-        let y = top + afterRule + labelSize + afterLabel;
+        c.textBaseline = "top";
+        let y = top + afterRule;
         items.forEach((item, itemIndex) => {
           // Threads 的留言列標的是帳號，不是顯示名稱。沒有帳號時才退回名稱，
           // 這樣手動加的留言仍然有東西可以顯示。
           const handle = item.comment.handle.trim().replace(/^@/, "");
           const author = style.maskIdentity ? "匿名" : handle || item.comment.name.trim();
-          drawAvatar(c, item.avatar, 0, y, avatarSize, ink, author, style.maskIdentity);
+          drawAvatar(c, item.avatar, avatarX, y, avatarSize, ink, author, style.maskIdentity);
 
           // 帳號與時間同一行，用基線定位讓兩個不同字級的字身對齊。
           c.textBaseline = "alphabetic";
