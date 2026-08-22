@@ -16,6 +16,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createServer } from "node:http";
+import { deflateSync } from "node:zlib";
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { extname, join, resolve } from "node:path";
@@ -119,51 +120,34 @@ async function cellBoxes(page, count) {
 }
 
 /**
- * 帶入一則純文字貼文，上傳 upload 張測試圖、只顯示 count 張，回傳各色塊座標。
- * upload > count 時等同「原貼文比卡片畫得出來的多」，用來驗 +N。
+ * 透過假的取文服務帶入一則貼文，回傳各色塊在畫布上的座標。
+ *
+ * `shown` 是卡片上會畫幾張，`total` 是原貼文宣稱有幾則媒體（total > shown
+ * 就是「+N」的情境）。
  */
-async function renderWith(page, origin, count, upload = count) {
+async function renderWith(page, shown, total = shown) {
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
-  await page.goto(origin, { waitUntil: "load" });
-  await page.fill("#intake", "排版回歸測試\n@tester");
-  await page.click("#apply");
+  fakePost = fakeWorkerPost({ images: swatchUrls(shown), mediaCount: total });
 
-  const files = await makeSwatches(page);
-  await page.setInputFiles(
-    "#f-images",
-    await Promise.all(
-      files.slice(0, upload).map(async (dataUrl, i) => ({
-        name: `swatch${i}.png`,
-        mimeType: "image/png",
-        buffer: Buffer.from(dataUrl.split(",")[1], "base64"),
-      })),
-    ),
-  );
+  await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+  await page.evaluate(() => {
+    document.querySelectorAll("details").forEach((d) => (d.open = true));
+  });
+  await page.fill("#intake", "https://www.threads.com/@someone/post/FakeCode");
+  await page.evaluate(() => document.querySelector("#apply").click());
 
-  await page.evaluate((n) => {
-    const toggle = document.querySelector("#t-images");
-    if (!toggle.checked) {
-      toggle.checked = true;
-      toggle.dispatchEvent(new Event("change", { bubbles: true }));
-    }
-    const select = document.querySelector("#s-image-limit");
-    select.value = String(n);
-    select.dispatchEvent(new Event("change", { bubbles: true }));
-  }, count);
-
-  // 算繪是同步的，但圖片解碼與 state 寫回要等一輪事件迴圈。
-  // 提示顯示的是「上傳了幾張」，不是「畫幾張」—— 等錯數字會直接逾時。
+  // 圖片是逐張補上的，等畫布高度穩定下來再量。
   await page.waitForFunction(
-    (n) => document.querySelector("#image-count")?.textContent?.includes(`已加入 ${n} 張`),
-    upload,
-    { timeout: 15000 },
+    () => document.querySelector("#canvas").height > 400,
+    undefined,
+    { timeout: 20000 },
   );
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(1500);
 
-  const boxes = await cellBoxes(page, count);
+  const boxes = await cellBoxes(page, shown);
   return { boxes, errors };
 }
 
@@ -196,40 +180,119 @@ async function countForeign(page, box, rgb) {
   );
 }
 
+/** CRC-32，PNG 每個區塊都要。 */
+function crc32(buf) {
+  let c = ~0;
+  for (const byte of buf) {
+    c ^= byte;
+    for (let k = 0; k < 8; k++) c = (c >>> 1) ^ (0xedb88320 & -(c & 1));
+  }
+  return ~c >>> 0;
+}
+
+function chunk(type, data) {
+  const head = Buffer.alloc(8);
+  head.writeUInt32BE(data.length, 0);
+  head.write(type, 4, "ascii");
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])), 0);
+  return Buffer.concat([head, data, crc]);
+}
+
 /**
- * 假的取文服務。
+ * 產生一張純色 PNG。
  *
- * 必須跑在另一個 port：app 會把「跟自己同一個 host」的位址判定成本站網址而
- * 拒絕採用。用 localhost 而不是 127.0.0.1，因為驗證只放行 https 或 localhost。
- *
- * 有了它，「貼留言連結」這條路就能離線測 —— 不必真的連 Threads，測試也不會
- * 因為某則樣本貼文被刪掉而壞掉。
+ * 自己編碼而不是抓現成的圖：測試不能連網（樣本會消失），也不該為了幾張色塊
+ * 多裝一個影像套件。PNG 的純色情況很單純 —— 每條掃描線前面補一個 0 當濾波器
+ * 標記，整包 deflate 就完成了。
  */
-function serveFakeWorker() {
-  const body = JSON.stringify({
+function pngSolid(w, h, [r, g, b]) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(w, 0);
+  ihdr.writeUInt32BE(h, 4);
+  ihdr[8] = 8; // bit depth
+  ihdr[9] = 2; // truecolour
+  const row = Buffer.alloc(1 + w * 3);
+  for (let x = 0; x < w; x++) {
+    row[1 + x * 3] = r;
+    row[2 + x * 3] = g;
+    row[3 + x * 3] = b;
+  }
+  const raw = Buffer.concat(Array.from({ length: h }, () => row));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk("IHDR", ihdr),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", Buffer.alloc(0)),
+  ]);
+}
+
+/**
+ * 這一輪要讓假的取文服務回什麼。測試在導頁前設定它。
+ *
+ * 全部改走取文這條路，是因為介面上的手動控制項（圖片數目、圖片上傳）會隨著
+ * 精簡而消失，靠它們驅動的測試每次都得跟著改。取文是這個 app 真正的主線，
+ * 綁在它上面才穩。
+ */
+let fakePost = null;
+
+function fakeWorkerPost(overrides = {}) {
+  return {
     url: "https://www.threads.com/@someone/post/FakeCode",
     username: "someone",
     name: "Someone",
     topic: null,
     avatar: null,
-    text: "貼連結帶進來的留言",
+    text: "假的取文結果",
     takenAt: 1787000000,
     likes: 42,
     replies: 1,
     reposts: 2,
     shares: 3,
     images: [],
-    mediaCount: 0,
     comments: [],
-  });
+    ...overrides,
+  };
+}
+
+/**
+ * 假的取文服務。
+ *
+ * 必須跑在另一個 port：app 會把「跟自己同一個 host」的位址判定成本站網址而
+ * 拒絕採用。用 localhost 而不是 127.0.0.1，因為驗證只放行 https 或 localhost。
+ *
+ * 有了它，取文與貼留言連結這兩條路都能離線測 —— 不必真的連 Threads，測試也
+ * 不會因為某則樣本貼文被刪掉而壞掉。
+ */
+function serveFakeWorker() {
   const server = createServer((req, res) => {
+    const url = new URL(req.url ?? "/", "http://fake");
+    const img = url.searchParams.get("img");
+
+    if (img) {
+      // 圖片網址裡帶著色塊代號，回傳對應的純色 PNG。
+      const key = /swatch-([A-D])/.exec(img)?.[1] ?? "A";
+      const spec = SWATCHES.find((s) => s.key === key) ?? SWATCHES[0];
+      res.writeHead(200, {
+        "content-type": "image/png",
+        "access-control-allow-origin": "*",
+      });
+      res.end(pngSolid(spec.w, spec.h, spec.rgb));
+      return;
+    }
+
     res.writeHead(200, {
       "content-type": "application/json; charset=utf-8",
       "access-control-allow-origin": "*",
     });
-    res.end(body);
+    res.end(JSON.stringify(fakePost ?? fakeWorkerPost()));
   });
   return new Promise((ok) => server.listen(0, "127.0.0.1", () => ok(server)));
+}
+
+/** 產生 n 個帶色塊代號的假圖片網址。 */
+function swatchUrls(n) {
+  return SWATCHES.slice(0, n).map((s) => `https://cdn.test/swatch-${s.key}.png`);
 }
 
 const server = await serveDist();
@@ -249,7 +312,7 @@ test.after(async () => {
 
 test("單張維持原比例、不裁切，且佔滿內容寬度", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 1);
+  const { boxes, errors } = await renderWith(page, 1);
   await page.close();
 
   assert.deepEqual(errors, []);
@@ -263,7 +326,7 @@ test("單張維持原比例、不裁切，且佔滿內容寬度", async () => {
 
 test("兩張並排：同高、右緣對齊、中間留一道縫", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 2);
+  const { boxes, errors } = await renderWith(page, 2);
   await page.close();
 
   assert.deepEqual(errors, []);
@@ -281,7 +344,7 @@ test("兩張並排：同高、右緣對齊、中間留一道縫", async () => {
 
 test("三張：兩張一排，落單的獨佔整排", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 3);
+  const { boxes, errors } = await renderWith(page, 3);
   await page.close();
 
   assert.deepEqual(errors, []);
@@ -299,7 +362,7 @@ test("三張：兩張一排，落單的獨佔整排", async () => {
 
 test("四張：兩排各兩張，每排右緣都齊平", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 4);
+  const { boxes, errors } = await renderWith(page, 4);
   await page.close();
 
   assert.deepEqual(errors, []);
@@ -322,7 +385,7 @@ test("四張：兩排各兩張，每排右緣都齊平", async () => {
 test("原貼文比畫得出來的多時，最後一格要標 +N", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
   // 上傳 4 張但只顯示 2 張 —— 等同自動帶入時原貼文有 4 則、卡片只畫 2 則。
-  const { boxes, errors } = await renderWith(page, origin, 2, 4);
+  const { boxes, errors } = await renderWith(page, 2, 4);
 
   const badge = await countForeign(page, boxes.B, SWATCHES[1].rgb);
   await page.close();
@@ -334,7 +397,7 @@ test("原貼文比畫得出來的多時，最後一格要標 +N", async () => {
 
 test("原貼文張數與顯示張數相同時不該出現 +N", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 2, 2);
+  const { boxes, errors } = await renderWith(page, 2, 2);
 
   const badge = await countForeign(page, boxes.B, SWATCHES[1].rgb);
   await page.close();
@@ -376,6 +439,10 @@ async function railPixels(page) {
 
 /** 帶入一則純文字貼文並顯示一則留言，留言內容由 fill 決定怎麼填。 */
 async function withOneComment(page, fill) {
+  // 這一組不看圖片，只要一則有內文的留言 —— 明確設定，才不會沿用上一個測試
+  // 留下來的假回應。
+  fakePost = fakeWorkerPost({ text: "貼連結帶進來的留言" });
+
   await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
   // 各區塊預設是收合的 <details>，不展開的話裡面的控制項點不到。
   await page.evaluate(() => {
@@ -450,7 +517,7 @@ test("串文接線只在貼了留言連結時出現", async () => {
  */
 test("有留言但沒貼連結時，貼文圖片維持滿版", async () => {
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
-  const { boxes, errors } = await renderWith(page, origin, 1);
+  const { boxes, errors } = await renderWith(page, 1);
   const before = boxes.A.w;
 
   await page.evaluate(() => {
