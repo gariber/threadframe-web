@@ -167,7 +167,7 @@ const KEY = "threadframe.v1";
  *   2              圖片改 4 張、留言改 4 則
  *   3              留言改成不展示、原始網址改成不顯示
  */
-const SCHEMA = 3;
+const SCHEMA = 4;
 
 /**
  * 只保存排版偏好，不保存貼文內容 —— 貼文可能是別人的，留在裝置上沒有必要。
@@ -218,6 +218,23 @@ export function loadStyle(): Style {
     if (from < 3) {
       base.commentLimit = fresh.commentLimit;
       base.showUrl = fresh.showUrl;
+    }
+    /*
+     * v4：「顯示項目」整區從介面拿掉了。
+     *
+     * 那些開關現在沒有地方可以調，存檔裡若留著舊的選擇（例如當初把貼文圖片
+     * 關掉），使用者就再也打不開，而且找不到原因。一律拉回預設。
+     */
+    if (from < 4) {
+      base.showAvatar = fresh.showAvatar;
+      base.showStats = fresh.showStats;
+      base.showTime = fresh.showTime;
+      base.timeFormat = fresh.timeFormat;
+      base.showImages = fresh.showImages;
+      base.imageLimit = fresh.imageLimit;
+      base.showUrl = fresh.showUrl;
+      base.showLogo = fresh.showLogo;
+      base.showBrand = fresh.showBrand;
     }
   } catch {
     return defaultStyle();

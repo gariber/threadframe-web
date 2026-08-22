@@ -174,57 +174,43 @@
 
 
 
-      <details class="sheet">
-        <summary class="sheet-head">顯示項目</summary>
-        <div class="sheet-body">
-          <label class="check"><input id="t-avatar" type="checkbox" />頭像</label>
-          <label class="check"><input id="t-stats" type="checkbox" />互動統計</label>
-          <label class="check"><input id="t-time" type="checkbox" />時間</label>
-          <label>時間格式
-            <select id="s-time-format">
-              <option value="absolute">絕對（2026-08-07 07:40）</option>
-              <option value="relative">相對（6 小時）</option>
-            </select>
-          </label>
-          <label class="check"><input id="t-images" type="checkbox" />貼文圖片</label>
-          <label>圖片數目
-            <select id="s-image-limit">
-              <option value="1">1 張</option>
-              <option value="2">2 張</option>
-              <option value="3">3 張</option>
-              <option value="4">4 張</option>
-            </select>
-          </label>
-          <label class="check"><input id="t-url" type="checkbox" />原始網址</label>
-          <label class="check"><input id="t-logo" type="checkbox" />Threads 標誌（右上）</label>
-          <label class="check"><input id="t-brand" type="checkbox" />品牌標記（右下）</label>
-        </div>
-      </details>
-
       <details class="sheet" id="fetch-sheet">
         <summary class="sheet-head">自動帶入</summary>
         <div class="sheet-body">
-          <label class="stack">
-            取文服務網址
-            <input id="worker-url" type="url" spellcheck="false" autocomplete="off"
-                   placeholder="https://threadframe-fetch.你的帳號.workers.dev" />
-          </label>
-          <div class="intake-row">
-            <button id="worker-test" type="button">測試連線</button>
-            <button id="worker-reset" type="button">還原預設</button>
-            <button id="worker-clear" type="button">停用</button>
-          </div>
-          <p class="hint" id="worker-status"></p>
           <p class="hint">
-            Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務。
-            內建了一個預設位址，通常不用改。想用自己的就填在這裡（只存在這台裝置），
-            repo 的 <code>worker/</code> 目錄有現成的 Cloudflare Worker。
-            按「停用」則回到全手動模式。
+            Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務，
+            內建的那支開箱即用、通常不用管它。
           </p>
           <p class="hint">
             注意：啟用之後，你貼上的連結會送到這支服務去取內容 ——
-            它是你自己部署、自己掌控的，但已經不是「完全不離開裝置」了。
+            已經不是「完全不離開裝置」了。不想這樣的話，在下面按「停用」，
+            app 會退回全手動模式。
           </p>
+          <!--
+            取文位址收在這一層底下。
+            它是給「想自己部署一支」的人用的，絕大多數人一輩子不會碰；
+            擺在最上面只會讓第一次打開的人以為自己得先設定什麼才能用。
+          -->
+          <details class="library" id="worker-advanced">
+            <summary>進階：改用自己的取文服務</summary>
+            <div class="sheet-body">
+              <label class="stack">
+                取文服務網址
+                <input id="worker-url" type="url" spellcheck="false" autocomplete="off"
+                       placeholder="https://threadframe-fetch.你的帳號.workers.dev" />
+              </label>
+              <div class="intake-row">
+                <button id="worker-test" type="button">測試連線</button>
+                <button id="worker-reset" type="button">還原預設</button>
+                <button id="worker-clear" type="button">停用</button>
+              </div>
+              <p class="hint" id="worker-status"></p>
+              <p class="hint">
+                填自己的位址（只存在這台裝置），repo 的 <code>worker/</code> 目錄
+                有現成的 Cloudflare Worker。
+              </p>
+            </div>
+          </details>
         </div>
       </details>
 

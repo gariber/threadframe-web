@@ -33,7 +33,6 @@ import {
   type Post,
   type Ratio,
   type Style,
-  type TimeFormat,
 } from "./state";
 
 declare const __BUILD_ID__: string;
@@ -333,6 +332,8 @@ function applyIntake(): void {
     // 會貼進設定欄而不是輸入框，把取文位址覆蓋成一條 Threads 連結。
     const sheet = $("fetch-sheet");
     sheet.setAttribute("open", "");
+    // 位址欄收在「進階」底下，只展開外層的話使用者看不到要填哪裡。
+    $("worker-advanced").setAttribute("open", "");
     sheet.scrollIntoView({ behavior: "smooth", block: "center" });
   } else {
     setStatus("err", "看不出貼文內容，請直接在下面「貼文內容」的欄位填寫。");
@@ -1027,7 +1028,6 @@ fontSelect.addEventListener("change", () => {
 });
 
 const counters: [string, "imageLimit" | "commentLimit"][] = [
-  ["s-image-limit", "imageLimit"],
   ["s-comment-limit", "commentLimit"],
 ];
 
@@ -1038,16 +1038,6 @@ for (const [id, key] of counters) {
     commit();
   });
 }
-
-$<HTMLSelectElement>("s-time-format").addEventListener("change", (e) => {
-  style.timeFormat = (e.target as HTMLSelectElement).value as TimeFormat;
-  // 自動帶入過的貼文重新換算；手動打的時間不動 —— 那是使用者自己寫的字。
-  if (post.takenAt !== null) {
-    post.time = formatPostTime();
-    syncFields();
-  }
-  commit();
-});
 
 $("reset").addEventListener("click", () => {
   // 只重設排版，不動已經輸入的貼文內容 —— 那些重打一次成本太高。
@@ -1069,13 +1059,6 @@ for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="rat
 }
 
 const toggles: [string, keyof Style][] = [
-  ["t-avatar", "showAvatar"],
-  ["t-stats", "showStats"],
-  ["t-time", "showTime"],
-  ["t-images", "showImages"],
-  ["t-url", "showUrl"],
-  ["t-logo", "showLogo"],
-  ["t-brand", "showBrand"],
   ["t-glass", "glass"],
   ["t-mask", "maskIdentity"],
 ];
@@ -1105,8 +1088,6 @@ function syncControls(): void {
   $<HTMLInputElement>("s-ink").value = style.textColor;
   $<HTMLInputElement>("s-ink-hex").value = style.textColor.toUpperCase();
   $<HTMLSelectElement>("s-font").value = style.fontId;
-  $<HTMLSelectElement>("s-image-limit").value = String(style.imageLimit);
-  $<HTMLSelectElement>("s-time-format").value = style.timeFormat;
   $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {
     radio.checked = radio.value === style.ratio;
