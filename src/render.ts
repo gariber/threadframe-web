@@ -856,6 +856,9 @@ function layout(
     const statLineH = Math.max(statIcon, lineHeight(ctx, statSize));
 
     ctx.font = font(bodySize, 400);
+    /** 展示中的留言裡，有沒有任何一則是貼連結指定的。 */
+    const linked = comments.some(({ comment }) => comment.fromLink);
+
     const items = comments.map(({ comment, index }) => {
       const lines = comment.text.trim() ? wrapText(ctx, comment.text.trim(), textW) : [];
 
@@ -924,8 +927,12 @@ function layout(
          *
          * 起點是作者列在畫的時候記下來的實際位置 —— 中間隔著內文、圖片、
          * 時間與統計，高度隨內容變動，寫死算不準。
+         *
+         * 只有貼了留言連結時才畫。那條線是在說「我要分享的是這則回覆」，
+         * 只有刻意指定某則留言時才成立；自動帶入的熱門留言只是附帶資訊，
+         * 畫了線反而像在強調它，多數卡片上會變成多餘的裝飾。
          */
-        if (style.showAvatar && avatarBottom > 0) {
+        if (linked && style.showAvatar && avatarBottom > 0) {
           c.strokeStyle = softInk(ink, 0.16);
           c.lineWidth = Math.max(2, Math.round(size * 0.07));
           c.lineCap = "round";

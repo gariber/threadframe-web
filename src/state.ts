@@ -25,6 +25,14 @@ export type Comment = {
   shares: string;
   /** dataURL；null 時改用名稱首字的圓形底。 */
   avatar: string | null;
+  /**
+   * 這則留言是不是「貼留言連結」帶進來的。
+   *
+   * 只影響卡片上那條從貼文頭像連到留言頭像的細線：那條線是在說「我要分享的
+   * 是這則回覆」，只有刻意指定某則留言時才成立。自動帶入的熱門留言只是附帶
+   * 資訊，畫了線反而像在強調它。
+   */
+  fromLink?: boolean;
 };
 
 export const emptyComment = (): Comment => ({
