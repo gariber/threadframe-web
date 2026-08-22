@@ -441,3 +441,36 @@ test("串文接線只在貼了留言連結時出現", async () => {
     `接線沒有隨「有沒有貼連結」改變（手動 ${manual}、貼連結 ${linked}）`,
   );
 });
+
+/*
+ * 縮排跟接線一樣，只在貼了留言連結時才套用。
+ *
+ * 沒有這條測試的話，把縮排改回全域生效不會被抓到：上面幾項都是「沒有留言」
+ * 的情境，那時本來就不縮排，圖片一樣滿版。要有留言、又沒貼連結，才驗得到。
+ */
+test("有留言但沒貼連結時，貼文圖片維持滿版", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const { boxes, errors } = await renderWith(page, origin, 1);
+  const before = boxes.A.w;
+
+  await page.evaluate(() => {
+    document.querySelectorAll("details").forEach((d) => (d.open = true));
+    document.querySelector("#add-comment").click();
+    const area = document.querySelector(".comment-row textarea");
+    area.value = "手動打的留言";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+    const sel = document.querySelector("#s-comment-limit");
+    sel.value = "1";
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  await page.waitForTimeout(800);
+
+  const after = (await cellBoxes(page, 1)).A.w;
+  await page.close();
+
+  assert.deepEqual(errors, []);
+  assert.ok(
+    Math.abs(after - before) <= 2,
+    `多了一則留言就把圖片縮窄了（${before} → ${after}）`,
+  );
+});
