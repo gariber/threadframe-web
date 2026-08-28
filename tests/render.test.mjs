@@ -304,6 +304,28 @@ const browser = await chromium.launch({
   executablePath: process.env.CHROMIUM_PATH || undefined,
 });
 
+/** 本機這兩支測試用伺服器，其餘一律當成外網。 */
+const LOCAL_RE = /^https?:\/\/(?:127\.0\.0\.1|localhost)[:/]/;
+
+/**
+ * 開一個測試分頁，並且切斷所有對外網的請求。
+ *
+ * 檔頭寫的「不連網」不只適用於樣本貼文 —— 頁面自己也會載入 Cloudflare 的
+ * 分析 beacon。那是正式站的一部分，卻讓測試多了一個對外相依：離線、CI 沒有
+ * 出口、或那個網域被擋掉時，它會在主控台留下一行載入失敗，而每個測試都斷言
+ * 主控台不能有錯誤 —— 於是整組測試因為跟排版無關的原因一起變紅。
+ *
+ * 換成空回應而不是 abort：abort 同樣會在主控台留下失敗訊息。
+ */
+async function newPage() {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  await page.route(
+    (url) => !LOCAL_RE.test(url.toString()),
+    (route) => route.fulfill({ status: 200, contentType: "text/javascript", body: "" }),
+  );
+  return page;
+}
+
 test.after(async () => {
   await browser.close();
   server.close();
@@ -311,7 +333,7 @@ test.after(async () => {
 });
 
 test("單張維持原比例、不裁切，且佔滿內容寬度", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 1);
   await page.close();
 
@@ -325,7 +347,7 @@ test("單張維持原比例、不裁切，且佔滿內容寬度", async () => {
 });
 
 test("兩張並排：同高、右緣對齊、中間留一道縫", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 2);
   await page.close();
 
@@ -343,7 +365,7 @@ test("兩張並排：同高、右緣對齊、中間留一道縫", async () => {
 });
 
 test("三張：兩張一排，落單的獨佔整排", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 3);
   await page.close();
 
@@ -361,7 +383,7 @@ test("三張：兩張一排，落單的獨佔整排", async () => {
 });
 
 test("四張：兩排各兩張，每排右緣都齊平", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 4);
   await page.close();
 
@@ -383,7 +405,7 @@ test("四張：兩排各兩張，每排右緣都齊平", async () => {
 });
 
 test("原貼文比畫得出來的多時，最後一格要標 +N", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   // 上傳 4 張但只顯示 2 張 —— 等同自動帶入時原貼文有 4 則、卡片只畫 2 則。
   const { boxes, errors } = await renderWith(page, 2, 4);
 
@@ -396,7 +418,7 @@ test("原貼文比畫得出來的多時，最後一格要標 +N", async () => {
 });
 
 test("原貼文張數與顯示張數相同時不該出現 +N", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 2, 2);
 
   const badge = await countForeign(page, boxes.B, SWATCHES[1].rgb);
@@ -477,7 +499,7 @@ async function withOneComment(page, fill) {
  * 那條接線。
  */
 test("串文接線只在貼了留言連結時出現", async () => {
-  const manualPage = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const manualPage = await newPage();
   const manual = await withOneComment(manualPage, async (p) => {
     await p.evaluate(() => {
       const area = document.querySelector(".comment-row textarea");
@@ -487,7 +509,7 @@ test("串文接線只在貼了留言連結時出現", async () => {
   });
   await manualPage.close();
 
-  const linkedPage = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const linkedPage = await newPage();
   const linked = await withOneComment(linkedPage, async (p) => {
     await p.evaluate(() => {
       const input = document.querySelector(".comment-link input");
@@ -516,7 +538,7 @@ test("串文接線只在貼了留言連結時出現", async () => {
  * 的情境，那時本來就不縮排，圖片一樣滿版。要有留言、又沒貼連結，才驗得到。
  */
 test("有留言但沒貼連結時，貼文圖片維持滿版", async () => {
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const page = await newPage();
   const { boxes, errors } = await renderWith(page, 1);
   const before = boxes.A.w;
 
