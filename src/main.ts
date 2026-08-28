@@ -150,6 +150,11 @@ function setStatus(kind: "hint" | "err" | "none", text = ""): void {
   status.hidden = kind === "none";
   status.className = kind === "err" ? "err" : "hint";
   status.textContent = text;
+
+  // 底下那行常駐說明講的就是「讀不到的時候改貼文字」，跟讀不到時跳出來的
+  // 錯誤訊息是同一件事。兩行疊在一起，畫面上等於把同一句話再說一次，
+  // 而錯誤訊息本來就長，整區會糊成一片紅字。有話要說的時候就讓它獨佔。
+  $("intake-hint").hidden = kind !== "none";
 }
 
 /**
@@ -263,6 +268,9 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
   await Promise.all([avatarJob, imagesJob, ...commentJobs]);
 }
 
+/** 各種訊息裡「改成複製貼文文字」這條退路的共同講法，用來判斷是否已經講過。 */
+const PASTE_FALLBACK = "複製整則貼文的文字";
+
 async function autoFill(url: string): Promise<void> {
   const applyBtn = $<HTMLButtonElement>("apply");
   applyBtn.disabled = true;
@@ -272,9 +280,15 @@ async function autoFill(url: string): Promise<void> {
     setStatus("none");
     intake.value = "";
   } catch (e) {
+    const message = (e as Error).message;
+    // 讀不到貼文時，取文服務自己已經把「改成複製貼文文字」這條退路寫進訊息了；
+    // 無條件再接一句，使用者看到的就是同一句話連著出現兩次。連不上服務、
+    // 回應看不懂那幾種訊息裡沒有這句，才需要補。
     setStatus(
       "err",
-      `${(e as Error).message} 你仍然可以改成複製整則貼文的文字貼上來。`,
+      message.includes(PASTE_FALLBACK)
+        ? message
+        : `${message} 你仍然可以改成複製整則貼文的文字貼上來。`,
     );
   } finally {
     applyBtn.disabled = false;
