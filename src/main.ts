@@ -166,7 +166,7 @@ function formatPostTime(): string {
     : formatTime(post.takenAt);
 }
 
-async function fillFromFetched(data: FetchedPost): Promise<void> {
+function fillFromFetched(data: FetchedPost): void {
   const generation = ++fetchGeneration;
 
   post.name = data.name || data.username;
@@ -260,7 +260,10 @@ async function fillFromFetched(data: FetchedPost): Promise<void> {
       : Promise.resolve(),
   ]);
 
-  await Promise.all([avatarJob, imagesJob, ...commentJobs]);
+  // 取文是否完成只看主貼文資料；頭像與圖片都是可選的裝飾素材。
+  // 若其中一個 CDN／代理請求一直 pending，不能連帶把「讀取貼文中」與按鈕
+  // 永久鎖住。圖片仍會在背景逐張補上，allSettled 也會吸收繪製階段的失敗。
+  void Promise.allSettled([avatarJob, imagesJob, ...commentJobs]);
 }
 
 async function autoFill(url: string): Promise<void> {
@@ -268,7 +271,8 @@ async function autoFill(url: string): Promise<void> {
   applyBtn.disabled = true;
   setStatus("hint", "讀取貼文中…");
   try {
-    await fillFromFetched(await fetchThreadsPost(url));
+    const data = await fetchThreadsPost(url);
+    fillFromFetched(data);
     setStatus("none");
     intake.value = "";
   } catch (e) {

@@ -235,6 +235,7 @@ function pngSolid(w, h, [r, g, b]) {
  * 綁在它上面才穩。
  */
 let fakePost = null;
+let hangFakeImages = false;
 
 function fakeWorkerPost(overrides = {}) {
   return {
@@ -270,6 +271,11 @@ function serveFakeWorker() {
     const img = url.searchParams.get("img");
 
     if (img) {
+      // 用來重現「主貼文已回來，但某張 CDN 圖永遠沒有成功或失敗事件」。
+      // 保持連線 pending，直到測試關閉頁面；不能用 404，因為 404 會立刻觸發
+      // img.onerror，反而測不到一直讀取中的故障。
+      if (hangFakeImages) return;
+
       // 圖片網址裡帶著色塊代號，回傳對應的純色 PNG。
       const key = /swatch-([A-D])/.exec(img)?.[1] ?? "A";
       const spec = SWATCHES.find((s) => s.key === key) ?? SWATCHES[0];
@@ -404,6 +410,32 @@ test("原貼文張數與顯示張數相同時不該出現 +N", async () => {
 
   assert.deepEqual(errors, []);
   assert.ok(badge < 100, `沒有東西被藏起來卻畫了 +N（異色像素 ${badge}）`);
+});
+
+test("裝飾圖片一直 pending 時，主貼文成功後仍會結束讀取狀態", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  hangFakeImages = true;
+  fakePost = fakeWorkerPost({ avatar: "https://cdn.test/hanging-avatar.png" });
+
+  try {
+    await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+    await page.fill("#intake", "https://www.threads.com/@someone/post/FakeCode");
+    await page.evaluate(() => document.querySelector("#apply").click());
+
+    await page.waitForFunction(
+      () => {
+        const apply = document.querySelector("#apply");
+        const status = document.querySelector("#intake-status");
+        const intake = document.querySelector("#intake");
+        return apply && !apply.disabled && status?.hidden && intake?.value === "";
+      },
+      undefined,
+      { timeout: 3000 },
+    );
+  } finally {
+    hangFakeImages = false;
+    await page.close();
+  }
 });
 
 /**
