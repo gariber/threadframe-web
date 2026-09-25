@@ -130,6 +130,13 @@ async function renderWith(page, shown, total = shown) {
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
 
+  // 線上版掛了 Cloudflare Web Analytics。測試環境不該對外送統計，
+  // 它回報時也會因為來源是 127.0.0.1 被 CORS 擋下、在 console 留下錯誤，
+  // 讓下面「沒有任何錯誤」的斷言跟排版無關地失敗。換成一支空腳本。
+  await page.route("https://static.cloudflareinsights.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/javascript", body: "" }),
+  );
+
   fakePost = fakeWorkerPost({ images: swatchUrls(shown), mediaCount: total });
 
   await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
