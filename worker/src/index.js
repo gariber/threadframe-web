@@ -394,34 +394,52 @@ async function handlePost(target, cors) {
   // 讓它也等 600ms 是白白拖慢每一則新結構的貼文。
   let backoff = 0;
   let retriedForLikes = false;
+  let threw = false;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     if (backoff > 0) await new Promise((r) => setTimeout(r, backoff));
     backoff = 600 * (attempt + 1);
 
-    const upstream = await fetch(parsed.toString(), {
-      headers: {
-        "user-agent": CRAWLER_UA,
-        "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
-        accept: "text/html,application/xhtml+xml",
-      },
-      redirect: "follow",
-      /*
-       * 第一次走 Cloudflare 邊緣快取：同一則貼文短時間內重複開啟時，
-       * 省掉再抓一次那份近 900KB 的 HTML。
-       *
-       * 重試時一定要繞過快取。失敗的回應同樣會被存進去，照著快取重試
-       * 等於把同一個錯誤再讀兩次 —— 「試了 3 次」實際上只試了一次，
-       * 而且使用者接下來每次按都會撞到同一份，直到它過期為止。
-       * 這正是「連按幾次都失敗，過幾分鐘卻好了」的成因。
-       */
-      cf:
-        attempt === 0
-          ? { cacheTtl: 300, cacheEverything: true }
-          : { cacheTtl: 0, cacheEverything: false },
-    });
+    /*
+     * 連線層的失敗（DNS、TLS、Threads 直接斷線）fetch 會直接丟例外，而不是回一個
+     * 非 2xx 的回應。沒接住的話整支 Worker 會炸掉，Cloudflare 改回它自己的錯誤頁 ——
+     * 那一頁沒有 CORS 標頭，瀏覽器只會報「TypeError: Load failed」，使用者看到的是
+     * 「連不上取文服務」，完全看不出其實是 Threads 那一頭沒接。當成一次失敗重試即可。
+     */
+    let upstream;
+    let html;
+    try {
+      upstream = await fetch(parsed.toString(), {
+        headers: {
+          "user-agent": CRAWLER_UA,
+          "accept-language": "zh-TW,zh;q=0.9,en;q=0.8",
+          accept: "text/html,application/xhtml+xml",
+        },
+        redirect: "follow",
+        /*
+         * 第一次走 Cloudflare 邊緣快取：同一則貼文短時間內重複開啟時，
+         * 省掉再抓一次那份近 900KB 的 HTML。
+         *
+         * 重試時一定要繞過快取。失敗的回應同樣會被存進去，照著快取重試
+         * 等於把同一個錯誤再讀兩次 —— 「試了 3 次」實際上只試了一次，
+         * 而且使用者接下來每次按都會撞到同一份，直到它過期為止。
+         * 這正是「連按幾次都失敗，過幾分鐘卻好了」的成因。
+         */
+        cf:
+          attempt === 0
+            ? { cacheTtl: 300, cacheEverything: true }
+            : { cacheTtl: 0, cacheEverything: false },
+      });
 
-    lastStatus = upstream.status;
+      lastStatus = upstream.status;
+      if (upstream.ok && !refusedByThreads(upstream.url)) html = await upstream.text();
+    } catch {
+      threw = true;
+      // 已經拿到一份可用的貼文（這趟只是為了補讚數），就用手上那份交出去。
+      if (exact) break;
+      continue;
+    }
+
     if (!upstream.ok) continue;
 
     // 無效或無法公開讀取的貼文最後會落到 /?error=invalid_post。這種首頁
@@ -435,7 +453,7 @@ async function handlePost(target, cors) {
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
     const wantedCode = codeFromUrl(upstream.url);
     if (!wantedCode) continue;
-    const found = splitThread(scanPosts(await upstream.text()), wantedCode);
+    const found = splitThread(scanPosts(html), wantedCode);
     if (!found.main) continue;
 
     if (found.exact) {
@@ -466,6 +484,16 @@ async function handlePost(target, cors) {
   const post = exact;
   const comments = exactComments;
   if (!post) {
+    if (threw && !lastStatus) {
+      return json(
+        {
+          error: "upstream_unreachable",
+          message: "取文服務連不上 Threads（試了 3 次）。通常是暫時的，稍等一下再按一次就好。",
+        },
+        502,
+        cors,
+      );
+    }
     if (lastStatus && lastStatus !== 200) {
       return json(
         {
@@ -562,35 +590,51 @@ async function handleImage(target, cors) {
 
 export default {
   async fetch(request) {
-    const origin = request.headers.get("origin");
-
-    // 有 Origin 就一定是瀏覽器發的，必須在白名單內；
-    // 沒有 Origin 的（curl、瀏覽器直接開網址）放行，方便健康檢查與除錯。
-    if (origin && !originAllowed(origin)) {
-      return json({ error: "origin_not_allowed" }, 403, corsFor(null));
+    /*
+     * 最後一道保險：任何沒預料到的例外都要回一個帶 CORS 標頭的 JSON。
+     * 否則 Cloudflare 會改回它自己的錯誤頁，瀏覽器看不到內容，只報
+     * 「TypeError: Load failed」—— 跟裝置斷網長得一模一樣，完全無從查起。
+     */
+    try {
+      return await route(request);
+    } catch (e) {
+      const origin = request.headers.get("origin");
+      const cors = corsFor(origin && originAllowed(origin) ? origin : null);
+      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      return json({ error: "internal", message: `取文服務內部出錯（${detail}），請再按一次。` }, 500, cors);
     }
-
-    const cors = corsFor(origin);
-    if (request.method === "OPTIONS") return new Response(null, { headers: cors });
-    if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
-
-    const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
-    if (tooManyRequests(ip)) {
-      return json(
-        { error: "rate_limited", message: "請求太頻繁，請稍後再試。" },
-        429,
-        cors,
-        { "retry-after": "60" },
-      );
-    }
-
-    const url = new URL(request.url);
-    const img = url.searchParams.get("img");
-    if (img) return handleImage(img, cors);
-
-    const target = url.searchParams.get("url");
-    if (target) return handlePost(target, cors);
-
-    return json({ ok: true, usage: "?url=<threads 貼文網址> 或 ?img=<圖片網址>" }, 200, cors);
   },
 };
+
+async function route(request) {
+  const origin = request.headers.get("origin");
+
+  // 有 Origin 就一定是瀏覽器發的，必須在白名單內；
+  // 沒有 Origin 的（curl、瀏覽器直接開網址）放行，方便健康檢查與除錯。
+  if (origin && !originAllowed(origin)) {
+    return json({ error: "origin_not_allowed" }, 403, corsFor(null));
+  }
+
+  const cors = corsFor(origin);
+  if (request.method === "OPTIONS") return new Response(null, { headers: cors });
+  if (request.method !== "GET") return json({ error: "method_not_allowed" }, 405, cors);
+
+  const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+  if (tooManyRequests(ip)) {
+    return json(
+      { error: "rate_limited", message: "請求太頻繁，請稍後再試。" },
+      429,
+      cors,
+      { "retry-after": "60" },
+    );
+  }
+
+  const url = new URL(request.url);
+  const img = url.searchParams.get("img");
+  if (img) return handleImage(img, cors);
+
+  const target = url.searchParams.get("url");
+  if (target) return handlePost(target, cors);
+
+  return json({ ok: true, usage: "?url=<threads 貼文網址> 或 ?img=<圖片網址>" }, 200, cors);
+}

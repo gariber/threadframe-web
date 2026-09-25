@@ -282,3 +282,53 @@ test("第一次就拿到讚數時不該多抓", async () => {
   assert.equal(result.body.likes, 1);
   assert.equal(result.calls, 1);
 });
+
+test("連線層丟例外時重試，下一趟成功就照常回傳", async () => {
+  const target = "https://www.threads.com/@teddy/post/LikeCode";
+  const ok = upstream(target, [post("LikeCode", "teddy", "內文")]);
+  const result = await fetchPost(target, [
+    {
+      get status() {
+        throw new TypeError("Network connection lost");
+      },
+    },
+    ok,
+  ]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.username, "teddy");
+});
+
+test("連線層一直失敗時回帶 CORS 的 JSON，而不是讓 Worker 炸掉", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalSetTimeout = globalThis.setTimeout;
+  globalThis.fetch = async () => {
+    throw new TypeError("Network connection lost");
+  };
+  globalThis.setTimeout = (callback, _delay, ...args) => {
+    callback(...args);
+    return 0;
+  };
+
+  try {
+    const response = await worker.fetch(
+      new Request(
+        `https://worker.test/?url=${encodeURIComponent("https://www.threads.com/share/BBlIZOwztL/")}`,
+        {
+          headers: {
+            origin: "https://threadsframe.gariber.studio",
+            "cf-connecting-ip": `worker-test-${requestId++}`,
+          },
+        },
+      ),
+    );
+    const body = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.equal(body.error, "upstream_unreachable");
+    assert.equal(response.headers.get("access-control-allow-origin"), "https://threadsframe.gariber.studio");
+  } finally {
+    globalThis.fetch = originalFetch;
+    globalThis.setTimeout = originalSetTimeout;
+  }
+});
