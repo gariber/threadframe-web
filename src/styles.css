@@ -194,6 +194,81 @@ button:disabled {
   display: none;
 }
 
+/* 遮蔽作者：分享鈕底下的一顆小開關。 */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: -0.4rem 0 1rem;
+  font-size: 0.85rem;
+  color: var(--ink-soft);
+  cursor: pointer;
+}
+
+.chip:has(input:checked) {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.icon-btn {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+.settings {
+  width: min(100vw, 40rem);
+  max-width: 100vw;
+  max-height: 100dvh;
+  margin: auto auto 0;
+  padding: 1rem 1rem calc(1.5rem + env(safe-area-inset-bottom));
+  border: 0;
+  border-radius: 16px 16px 0 0;
+  background: var(--card);
+  color: var(--ink);
+  overflow: auto;
+}
+
+.settings::backdrop {
+  background: #0000008c;
+}
+
+.settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.settings-head h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.settings-head button {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.9rem;
+}
+
+.settings label.stack {
+  display: block;
+  font-size: 0.9rem;
+}
+
+.settings input[type="url"] {
+  width: 100%;
+  margin-top: 0.4rem;
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--ground);
+  color: var(--ink);
+}
+
+.settings #reset {
+  width: 100%;
+  margin-bottom: 0.6rem;
+}
+
 .zoom {
   position: fixed;
   inset: 0;
@@ -268,6 +343,12 @@ button:disabled {
   border-top: 1px solid var(--line);
   font-size: 0.9rem;
   font-weight: 600;
+}
+
+.sheet-sub.first {
+  margin-top: 0.4rem;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .sheet-body label {
@@ -366,14 +447,57 @@ fieldset legend {
   padding: 0 0.3rem;
 }
 
+/*
+ * 比例改成一排膠囊按鈕，選中的整顆反白。
+ *
+ * 原本是原生單選鈕加上 accent-color；深色模式下主色接近白色，選中與沒選中
+ * 只差中間一個淡灰點，實際在手機上幾乎分不出來。
+ */
+fieldset.ratio {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  border: 0;
+  padding: 0;
+}
+
+fieldset.ratio legend {
+  padding: 0;
+  margin-bottom: 0.4rem;
+}
+
 fieldset.ratio label {
-  display: inline-flex;
-  margin-right: 0.9rem;
+  flex: 1 1 auto;
+  justify-content: center;
+  margin: 0;
+  padding: 0.5rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+fieldset.ratio input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+fieldset.ratio label:has(input:checked) {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--ground);
+  font-weight: 600;
+}
+
+fieldset.ratio label:has(input:focus-visible) {
+  outline: 2px solid var(--ink-soft);
+  outline-offset: 2px;
 }
 
 .presets {
   display: flex;
   gap: 0.55rem;
+  margin-bottom: 0.6rem;
   max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
@@ -420,6 +544,7 @@ fieldset.ratio label {
 
 .preset[aria-pressed="true"] {
   border-color: var(--ink);
+  border-width: 2px;
 }
 
 .preset[aria-pressed="true"] .preset-name {
@@ -430,14 +555,15 @@ fieldset.ratio label {
 .comment-row {
   border: 1px solid var(--line);
   border-radius: 10px;
-  padding: 0.7rem 0.8rem 0.1rem;
+  padding: 0.7rem 0.8rem 0.2rem;
   margin-bottom: 0.6rem;
 }
 
 .comment-head {
   display: flex;
-  align-items: center;
   justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
   margin-bottom: 0.5rem;
   font-size: 0.85rem;
   color: var(--ink-soft);
@@ -446,6 +572,55 @@ fieldset.ratio label {
 .comment-head button {
   padding: 0.3rem 0.6rem;
   font-size: 0.8rem;
+}
+
+/* 要壓過 .sheet-body label 的間距與字級。 */
+.comment-row .comment-pick {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.comment-pick input {
+  margin-top: 0.25rem;
+  flex: 0 0 auto;
+}
+
+.comment-summary {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.comment-summary strong {
+  color: var(--ink);
+  font-size: 0.85rem;
+}
+
+/* 內文只露兩行，夠認出是哪一則就好。 */
+.comment-summary span {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 0.82rem;
+  color: var(--ink-soft);
+}
+
+.comment-tools {
+  display: flex;
+  gap: 0.3rem;
+  flex: 0 0 auto;
+}
+
+.comment-edit {
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+  margin-top: 0.2rem;
 }
 
 .comment-row label.stack textarea {

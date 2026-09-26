@@ -33,9 +33,17 @@ export type Comment = {
    * 資訊，畫了線反而像在強調它。
    */
   fromLink?: boolean;
+  /**
+   * 要不要畫進卡片。
+   *
+   * 以前是「展示前 N 則」，想放第 3 則卻不要第 2 則就做不到；現在每則各自勾選。
+   * 手動新增與貼連結帶入的一律預設勾選 —— 特地加進來的，當然是要放上去。
+   */
+  picked: boolean;
 };
 
 export const emptyComment = (): Comment => ({
+  picked: true,
   name: "",
   handle: "",
   text: "",
@@ -99,7 +107,11 @@ export type Style = {
   showLogo: boolean;
   /** 卡片右下角的品牌標記。 */
   showBrand: boolean;
-  /** 展示幾則留言，0 表示不展示。 */
+  /**
+   * 帶入新貼文時，預設勾選前幾則留言，0 表示都不勾。
+   *
+   * 由使用者最近一次勾了幾則推得，換下一則貼文時沿用同樣的習慣。
+   */
   commentLimit: number;
   maskIdentity: boolean;
   fontId: string;

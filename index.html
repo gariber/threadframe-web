@@ -35,7 +35,7 @@
     <div class="wrap">
       <div class="topbar">
         <h1>ThreadsFrame</h1>
-        <button id="reset" type="button" title="回到預設排版">重設</button>
+        <button id="settings-open" type="button" class="icon-btn" aria-label="設定" title="設定">⚙︎</button>
       </div>
 
       <div class="preview" id="preview">
@@ -72,10 +72,15 @@
         一顆按鈕直接叫出系統分享選單（裡面就有「儲存影像」、IG、LINE）。
         不支援分享檔案的裝置，這顆會變成「下載圖片」。
       -->
+      <!-- 樣式常駐在主畫面：挑樣式是每次分享都會做的事，不該藏在面板裡。 -->
+      <div class="presets" id="presets" aria-label="樣式"></div>
+
       <div class="actions">
         <button id="export" type="button" class="primary export-btn">分享圖片</button>
         <button id="download" type="button" class="download-btn" hidden>下載</button>
       </div>
+      <!-- 遮不遮作者是「這一張」的決定，擺在分享鈕旁邊，不是設定。 -->
+      <label class="chip"><input id="t-mask" type="checkbox" />遮蔽作者身分</label>
 
       <dialog class="zoom" id="zoom">
         <img id="zoom-img" alt="分享圖放大檢視" />
@@ -83,14 +88,9 @@
       </dialog>
 
       <details class="sheet">
-        <summary class="sheet-head">樣式</summary>
+        <summary class="sheet-head">微調</summary>
         <div class="sheet-body">
-          <div class="presets" id="presets"></div>
-          <p class="hint">
-            一次換掉底圖、底板、字級、留白、圓角與比例。顯示項目與隱私設定不會被動到，套用後也還能自己微調。
-          </p>
-
-          <h3 class="sheet-sub">背景紙張</h3>
+          <h3 class="sheet-sub first">背景紙張</h3>
           <p class="hint">十四款內建背景；另可儲存最多八張本機背景</p>
           <div class="swatches" id="swatches"></div>
           <div class="intake-row">
@@ -142,77 +142,73 @@
       <details class="sheet">
         <summary class="sheet-head">留言</summary>
         <div class="sheet-body">
-          <label>展示留言數目
-            <select id="s-comment-limit">
-              <option value="0">不展示留言</option>
-              <option value="1">1 則</option>
-              <option value="2">2 則</option>
-              <option value="3">3 則</option>
-              <option value="4">4 則</option>
-            </select>
-          </label>
           <div id="comments"></div>
-          <button id="add-comment" type="button">新增留言</button>
+          <button id="add-comment" type="button">手動新增一則</button>
           <p class="hint" id="comment-hint"></p>
         </div>
       </details>
 
 
 
-      <details class="sheet" id="fetch-sheet">
-        <summary class="sheet-head">自動帶入</summary>
-        <div class="sheet-body">
-          <p class="hint">
-            Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務，
-            內建的那支開箱即用、通常不用管它。
-          </p>
-          <p class="hint">
-            注意：啟用之後，你貼上的連結會送到這支服務去取內容 ——
-            已經不是「完全不離開裝置」了。不想這樣的話，在下面按「停用」，
-            app 會退回全手動模式。
-          </p>
-          <!--
-            取文位址收在這一層底下。
-            它是給「想自己部署一支」的人用的，絕大多數人一輩子不會碰；
-            擺在最上面只會讓第一次打開的人以為自己得先設定什麼才能用。
-          -->
-          <details class="library" id="worker-advanced">
-            <summary>進階：改用自己的取文服務</summary>
-            <div class="sheet-body">
-              <label class="stack">
-                取文服務網址
-                <input id="worker-url" type="url" spellcheck="false" autocomplete="off"
-                       placeholder="https://threadframe-fetch.你的帳號.workers.dev" />
-              </label>
-              <div class="intake-row">
-                <button id="worker-test" type="button">測試連線</button>
-                <button id="worker-reset" type="button">還原預設</button>
-                <button id="worker-clear" type="button">停用</button>
-              </div>
-              <p class="hint" id="worker-status"></p>
-              <p class="hint">
-                填自己的位址（只存在這台裝置），repo 的 <code>worker/</code> 目錄
-                有現成的 Cloudflare Worker。
-              </p>
-            </div>
-          </details>
+      <!--
+        設定頁：自動帶入、隱私說明、重設。這些不是每次分享都會碰的東西，
+        以前跟「樣式」「留言」並排，看起來像每次都得處理一遍。
+      -->
+      <dialog class="settings" id="settings">
+        <div class="settings-head">
+          <h2>設定</h2>
+          <button id="settings-close" type="button">完成</button>
         </div>
-      </details>
 
-      <details class="sheet">
-        <summary class="sheet-head">隱私</summary>
-        <div class="sheet-body">
-          <label class="check"><input id="t-mask" type="checkbox" />遮蔽作者身分</label>
-          <p class="hint">
-            名稱、帳號、頭像會一起蓋掉。內文若含可識別線索不在處理範圍。
-          </p>
-          <p class="hint">
-            這個網頁不會把貼文、圖片或底圖送到任何伺服器 —— 全部只在這台裝置的瀏覽器裡處理。
-            只有排版偏好會存在本機，貼文內容重新整理後就消失。
-          </p>
-        </div>
-      </details>
-      <p class="hint build" id="build"></p>
+        <h3 class="sheet-sub first">自動帶入</h3>
+        <p class="hint">
+          Threads 不開放網頁跨網域讀取貼文，所以自動帶入需要一支中繼服務，
+          內建的那支開箱即用、通常不用管它。
+        </p>
+        <p class="hint">
+          注意：啟用之後，你貼上的連結會送到這支服務去取內容 ——
+          已經不是「完全不離開裝置」了。不想這樣的話，在下面按「停用」，
+          app 會退回全手動模式。
+        </p>
+        <!--
+          取文位址收在這一層底下。
+          它是給「想自己部署一支」的人用的，絕大多數人一輩子不會碰；
+          擺在最上面只會讓第一次打開的人以為自己得先設定什麼才能用。
+        -->
+        <details class="library" id="worker-advanced">
+          <summary>進階：改用自己的取文服務</summary>
+          <div class="sheet-body">
+            <label class="stack">
+              取文服務網址
+              <input id="worker-url" type="url" spellcheck="false" autocomplete="off"
+                     placeholder="https://threadframe-fetch.你的帳號.workers.dev" />
+            </label>
+            <div class="intake-row">
+              <button id="worker-test" type="button">測試連線</button>
+              <button id="worker-reset" type="button">還原預設</button>
+              <button id="worker-clear" type="button">停用</button>
+            </div>
+            <p class="hint" id="worker-status"></p>
+            <p class="hint">
+              填自己的位址（只存在這台裝置），repo 的 <code>worker/</code> 目錄
+              有現成的 Cloudflare Worker。
+            </p>
+          </div>
+        </details>
+
+        <h3 class="sheet-sub">隱私</h3>
+        <p class="hint">
+          排版與匯出都在這台裝置的瀏覽器裡完成，圖片與底圖不會送到任何伺服器。
+          只有排版偏好會存在本機，貼文內容重新整理後就消失。
+        </p>
+        <p class="hint">「遮蔽作者身分」會把名稱、帳號、頭像一起蓋掉；內文裡的可識別線索不在處理範圍。</p>
+
+        <h3 class="sheet-sub">排版</h3>
+        <button id="reset" type="button">重設排版</button>
+        <p class="hint">回到預設樣式。已經帶入的貼文不受影響。</p>
+
+        <p class="hint build" id="build"></p>
+      </dialog>
     </div>
 
     <script type="module" src="./src/main.ts"></script>
