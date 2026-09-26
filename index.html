@@ -39,39 +39,48 @@
       </div>
 
       <div class="preview" id="preview">
-        <canvas id="canvas" aria-label="分享圖預覽"></canvas>
+        <canvas id="canvas" aria-label="分享圖預覽，點一下放大" title="點一下放大"></canvas>
         <div class="msg" id="empty">
           <p>把一則 Threads 貼文貼進來，就會出現卡片。</p>
         </div>
       </div>
 
-      <div class="intake">
+      <!--
+        帶入之後整個輸入區縮成一行（.intake.done）：卡片已經出來了，
+        大輸入框和說明文字只是把分享按鈕往下推。要換下一則時再展開。
+      -->
+      <div class="intake" id="intake-box">
         <textarea
           id="intake"
-          rows="3"
+          rows="2"
           placeholder="貼上貼文連結&#10;（在 Threads 上點貼文右上角 ⋯ → 複製連結）"
         ></textarea>
         <div class="intake-row">
-          <button id="paste">貼上</button>
-          <button id="apply" class="primary">帶入卡片</button>
+          <button id="paste" type="button">貼上</button>
+          <button id="apply" type="button" class="primary">帶入卡片</button>
+          <button id="next" type="button" class="next">換一則貼文</button>
         </div>
         <p class="err" id="intake-status" hidden></p>
-        <p class="hint" id="intake-hint">
-          貼上連結會自動帶入作者、話題、頭像、內文、統計與圖片。
-          讀不到的時候，改成複製整則貼文的文字貼進來也可以。
-        </p>
+        <details class="err-detail" id="intake-detail" hidden>
+          <summary>詳細</summary>
+          <p id="intake-detail-text"></p>
+        </details>
+        <p class="hint" id="intake-hint">讀不到的時候，改成複製整則貼文的文字貼進來也可以。</p>
       </div>
 
-      <button id="export" class="primary export-btn">存成圖片</button>
-
-      <div class="result" id="result" hidden>
-        <img id="result-img" alt="產生的分享圖" />
-        <p>長按上面的圖片 → 加入照片，即可存檔。</p>
-        <div class="intake-row">
-          <button id="download">下載</button>
-          <button id="share" hidden>分享</button>
-        </div>
+      <!--
+        一顆按鈕直接叫出系統分享選單（裡面就有「儲存影像」、IG、LINE）。
+        不支援分享檔案的裝置，這顆會變成「下載圖片」。
+      -->
+      <div class="actions">
+        <button id="export" type="button" class="primary export-btn">分享圖片</button>
+        <button id="download" type="button" class="download-btn" hidden>下載</button>
       </div>
+
+      <dialog class="zoom" id="zoom">
+        <img id="zoom-img" alt="分享圖放大檢視" />
+        <p>點一下關閉</p>
+      </dialog>
 
       <details class="sheet">
         <summary class="sheet-head">樣式</summary>

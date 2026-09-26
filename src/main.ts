@@ -56,11 +56,6 @@ const assets: Assets = {
 
 const canvas = $<HTMLCanvasElement>("canvas");
 const emptyMsg = $("empty");
-const result = $("result");
-const resultImg = $<HTMLImageElement>("result-img");
-
-/** 匯出用的 blob URL，換圖時要回收，否則長時間使用會累積記憶體。 */
-let lastObjectUrl: string | null = null;
 
 // ── 圖片載入 ─────────────────────────────────────────────
 const MAX_SIDE = 2048;
@@ -120,7 +115,13 @@ function draw(): void {
     canvas.hidden = !ready;
     emptyMsg.hidden = ready;
     $<HTMLButtonElement>("export").disabled = !ready;
-    if (ready) renderCard(canvas, post, style, assets);
+    $<HTMLButtonElement>("download").disabled = !ready;
+    // 畫面變了，先前備好的圖檔就過期了。
+    pendingFile = null;
+    if (ready) {
+      renderCard(canvas, post, style, assets);
+      scheduleFile();
+    }
   });
 }
 
@@ -145,12 +146,36 @@ function urlToImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
-function setStatus(kind: "hint" | "err" | "none", text = ""): void {
+function setStatus(kind: "hint" | "err" | "none", text = "", detail = ""): void {
   const status = $("intake-status");
   status.hidden = kind === "none";
   status.className = kind === "err" ? "err" : "hint";
   status.textContent = text;
+  // 錯誤訊息本身就會教怎麼做，底下那行通用提示留著只是重複。
+  $("intake-hint").hidden = kind === "err";
+
+  const more = $<HTMLDetailsElement>("intake-detail");
+  more.hidden = !detail;
+  more.open = false;
+  $("intake-detail-text").textContent = detail;
 }
+
+const intakeBox = $("intake-box");
+
+/**
+ * 帶入成功後把輸入區收成一行「換一則貼文」。
+ *
+ * 卡片出來之後，大輸入框、兩顆按鈕和說明文字就沒有用了，留著只會把
+ * 分享按鈕擠到畫面外。要換下一則時再展開。
+ */
+function setIntakeDone(done: boolean): void {
+  intakeBox.classList.toggle("done", done);
+}
+
+$("next").addEventListener("click", () => {
+  setIntakeDone(false);
+  intake.focus();
+});
 
 /**
  * 每次自動帶入都會 +1。圖片是慢慢補上的，使用者在載入途中換帶入另一則貼文時，
@@ -275,11 +300,12 @@ async function autoFill(url: string): Promise<void> {
     fillFromFetched(data);
     setStatus("none");
     intake.value = "";
+    setIntakeDone(true);
   } catch (e) {
-    setStatus(
-      "err",
-      `${(e as Error).message} 你仍然可以改成複製整則貼文的文字貼上來。`,
-    );
+    const message = (e as Error).message;
+    // 取文服務自己的訊息多半已經教了「改成複製文字」，再補一次就重複了。
+    const fallback = message.includes("複製") ? "" : " 或改成複製整則貼文的文字貼上來。";
+    setStatus("err", `${message}${fallback}`, e instanceof FetchPostError ? e.detail : "");
   } finally {
     applyBtn.disabled = false;
   }
@@ -321,6 +347,7 @@ function applyIntake(): void {
     setStatus("none");
     // 內容已經畫進卡片，留著原始貼上區只會讓人以為還沒帶入。
     intake.value = "";
+    setIntakeDone(true);
   } else if (parsed.url) {
     setStatus(
       "err",
@@ -346,6 +373,14 @@ function applyIntake(): void {
 }
 
 $("apply").addEventListener("click", applyIntake);
+
+/*
+ * 在輸入框裡長按貼上時直接帶入，不必再多按一次「帶入卡片」。
+ * paste 事件觸發時內容還沒寫進去，等下一輪再讀。手動打字不受影響。
+ */
+intake.addEventListener("paste", () => {
+  setTimeout(applyIntake, 0);
+});
 
 $("paste").addEventListener("click", async () => {
   try {
@@ -1038,33 +1073,114 @@ function fileName(): string {
   return `threadframe-${who}.png`;
 }
 
-$("export").addEventListener("click", () => {
+/**
+ * 預先備好的圖檔。
+ *
+ * iOS 只允許在「點擊的當下」叫出分享選單；先 await 產圖（toBlob 在手機上要
+ * 好幾百毫秒）再呼叫 navigator.share，會被當成不是使用者觸發而直接拒絕。
+ * 所以卡片一停止變動就先在背景產好，按下去時手上已經有檔案。
+ */
+let pendingFile: File | null = null;
+let fileTimer = 0;
+let drawVersion = 0;
+
+function makeFile(): Promise<File | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (blob) => resolve(blob ? new File([blob], fileName(), { type: "image/png" }) : null),
+      "image/png",
+    );
+  });
+}
+
+function scheduleFile(): void {
+  const version = ++drawVersion;
+  clearTimeout(fileTimer);
+  // 拖滑桿時每一格都會重畫，等停下來再產圖，不要每一格都編碼一次 PNG。
+  fileTimer = window.setTimeout(async () => {
+    const file = await makeFile();
+    if (version === drawVersion) pendingFile = file;
+  }, 400);
+}
+
+async function currentFile(): Promise<File | null> {
+  if (pendingFile) return pendingFile;
   renderCard(canvas, post, style, assets);
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    if (lastObjectUrl) URL.revokeObjectURL(lastObjectUrl);
-    lastObjectUrl = URL.createObjectURL(blob);
-    resultImg.src = lastObjectUrl;
-    result.hidden = false;
+  pendingFile = await makeFile();
+  return pendingFile;
+}
 
-    const shareBtn = $<HTMLButtonElement>("share");
-    const file = new File([blob], fileName(), { type: "image/png" });
-    shareBtn.hidden = !navigator.canShare?.({ files: [file] });
-    shareBtn.onclick = () => {
-      void navigator.share({ files: [file] }).catch(() => {
-        /* 使用者取消分享不需要處理。 */
-      });
-    };
+function downloadFile(file: File): void {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = file.name;
+  a.click();
+  // 立刻回收的話有些瀏覽器會來不及開始下載。
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+}
 
-    $("download").onclick = () => {
-      const a = document.createElement("a");
-      a.href = lastObjectUrl as string;
-      a.download = fileName();
-      a.click();
-    };
+const exportBtn = $<HTMLButtonElement>("export");
+const downloadBtn = $<HTMLButtonElement>("download");
 
-    result.scrollIntoView({ behavior: "smooth", block: "nearest" });
-  }, "image/png");
+const canShareFiles = (() => {
+  try {
+    const probe = new File([new Uint8Array(1)], "probe.png", { type: "image/png" });
+    return Boolean(navigator.canShare?.({ files: [probe] }));
+  } catch {
+    return false;
+  }
+})();
+
+// 手機的分享選單裡本來就有「儲存影像」，不需要另一顆下載鈕；
+// 用滑鼠的電腦上多半是想直接拿到檔案，才另外給。
+exportBtn.textContent = canShareFiles ? "分享圖片" : "下載圖片";
+downloadBtn.hidden = !(canShareFiles && matchMedia("(pointer: fine)").matches);
+
+exportBtn.addEventListener("click", async () => {
+  const file = await currentFile();
+  if (!file) return;
+
+  if (canShareFiles) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return; // 使用者自己關掉選單。
+      if ((e as Error).name === "NotAllowedError") {
+        // 圖是剛剛才產出來的，iOS 判定已經不算這次點擊。檔案已經備好，
+        // 請使用者再按一次即可，不要改成下載 —— 那在 iOS 上會跳到另一個頁面。
+        exportBtn.textContent = "圖片準備好了，再按一次分享";
+        setTimeout(() => (exportBtn.textContent = "分享圖片"), 4000);
+        return;
+      }
+      // 其他錯誤（例如這個 App 不收這種檔案）退回下載。
+    }
+  }
+  downloadFile(file);
+});
+
+downloadBtn.addEventListener("click", async () => {
+  const file = await currentFile();
+  if (file) downloadFile(file);
+});
+
+// ── 放大檢視 ─────────────────────────────────────────────
+// 預覽會把整張卡縮進畫面裡，長貼文的字會很小，點一下可以看原尺寸。
+const zoom = $<HTMLDialogElement>("zoom");
+const zoomImg = $<HTMLImageElement>("zoom-img");
+
+canvas.addEventListener("click", async () => {
+  const file = await currentFile();
+  if (!file) return;
+  zoomImg.src = URL.createObjectURL(file);
+  zoom.showModal();
+});
+
+zoom.addEventListener("click", () => zoom.close());
+zoom.addEventListener("close", () => {
+  URL.revokeObjectURL(zoomImg.src);
+  zoomImg.removeAttribute("src");
 });
 
 // ── 分享目標（從 Threads 分享到這個 PWA） ────────────────

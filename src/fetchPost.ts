@@ -37,7 +37,19 @@ export type FetchedPost = {
   comments?: FetchedComment[];
 };
 
-export class FetchPostError extends Error {}
+export class FetchPostError extends Error {
+  /**
+   * 給回報問題用的技術細節（呼叫的網址、瀏覽器的原始錯誤）。
+   * 不放進主訊息 —— 一般使用者看到一串網址與 TypeError 只會更慌，
+   * 畫面上收在「詳細」底下，需要時再展開。
+   */
+  constructor(
+    message: string,
+    readonly detail?: string,
+  ) {
+    super(message);
+  }
+}
 
 /** 把圖片轉成經過代理的網址；直連 cdninstagram 會讓 canvas 被污染而無法匯出。 */
 export function proxyImage(rawUrl: string): string {
@@ -64,10 +76,13 @@ export async function fetchThreadsPost(postUrl: string): Promise<FetchedPost> {
     try {
       response = await fetch(target);
     } catch (e) {
-      // 把實際用到的網址與底層錯誤一併顯示 —— 少了這些，使用者回報時
+      // 實際用到的網址與底層錯誤仍然要留著 —— 少了這些，使用者回報時
       // 分不出是網址填錯、服務掛掉，還是被裝置上的阻擋器擋下。
-      const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
-      throw new FetchPostError(`連不上取文服務。呼叫的是 ${worker} ，瀏覽器回報 ${detail}。`);
+      const reason = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+      throw new FetchPostError(
+        "連不上取文服務，可能是網路不穩。再按一次試試看。",
+        `呼叫的是 ${worker} ，瀏覽器回報 ${reason}`,
+      );
     }
   }
 
