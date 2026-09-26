@@ -24,6 +24,11 @@
   box-sizing: border-box;
 }
 
+/* 滑桿、勾選框、單選鈕跟著 App 的主色，不要用瀏覽器預設的藍。 */
+:root {
+  accent-color: var(--accent);
+}
+
 body {
   margin: 0;
   background: var(--ground);
@@ -52,17 +57,25 @@ h1 {
   border-radius: 14px;
   margin-bottom: 1rem;
   background: var(--ground);
-  max-height: 52vh;
-  overflow: hidden auto;
-  overscroll-behavior: contain;
   box-shadow: 0 8px 16px -12px #00000080;
 }
 
+/*
+ * 整張卡縮進預覽框裡，不再在框內捲動。
+ *
+ * 以前是固定 52vh 高、裡面再捲，長一點的卡片底部（時間、統計、浮水印）
+ * 永遠被切掉，存圖前看不到成品長怎樣。現在一律看得到全貌；字太小時
+ * 點一下開原尺寸。
+ */
 .preview canvas {
-  width: 100%;
-  height: auto;
   display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 55vh;
+  margin: 0 auto;
   border-radius: 12px;
+  cursor: zoom-in;
 }
 
 .preview canvas[hidden] {
@@ -81,6 +94,45 @@ h1 {
 
 .intake {
   margin-bottom: 1rem;
+}
+
+.intake .hint {
+  margin: 0.6rem 0 0;
+}
+
+.intake .next {
+  display: none;
+}
+
+/* 帶入之後只留一行「換一則貼文」。 */
+.intake.done textarea,
+.intake.done #paste,
+.intake.done #apply,
+.intake.done .hint {
+  display: none;
+}
+
+.intake.done .next {
+  display: block;
+}
+
+.intake.done .intake-row {
+  margin-top: 0;
+}
+
+.err-detail {
+  font-size: 0.75rem;
+  color: var(--ink-faint);
+  margin-top: 0.3rem;
+}
+
+.err-detail summary {
+  cursor: pointer;
+}
+
+.err-detail p {
+  margin: 0.3rem 0 0;
+  word-break: break-all;
 }
 
 .intake textarea {
@@ -126,25 +178,51 @@ button:disabled {
   opacity: 0.45;
 }
 
+.actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
 .export-btn {
-  width: 100%;
-  margin-bottom: 1rem;
+  flex: 1;
+  padding: 0.9rem 1rem;
+  font-size: 1.05rem;
 }
 
-.result {
-  margin-bottom: 1rem;
+.download-btn[hidden] {
+  display: none;
 }
 
-.result img {
-  width: 100%;
+.zoom {
+  position: fixed;
+  inset: 0;
+  max-width: none;
+  max-height: none;
+  width: 100vw;
+  height: 100dvh;
+  margin: 0;
+  padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom);
+  border: 0;
+  background: #000;
+  overflow: auto;
+  text-align: center;
+}
+
+.zoom::backdrop {
+  background: #000;
+}
+
+.zoom img {
   display: block;
-  border-radius: 12px;
+  width: 100%;
+  max-width: 540px;
+  margin: 1rem auto 0;
 }
 
-.result p {
-  font-size: 0.85rem;
-  color: var(--ink-soft);
-  margin: 0.5rem 0 0;
+.zoom p {
+  color: #ffffffa0;
+  font-size: 0.8rem;
 }
 
 .sheet {
