@@ -439,14 +439,10 @@ function layout(
   const gap = Math.round(size * 0.7);
   const blocks: Metrics[] = [];
 
-  const commentLimit = Math.max(0, Math.min(MAX_COMMENTS, style.commentLimit));
-  const comments =
-    commentLimit > 0
-      ? post.comments
-          .map((comment, index) => ({ comment, index }))
-          .filter(({ comment }) => comment.text.trim() || comment.name.trim())
-          .slice(0, commentLimit)
-      : [];
+  const comments = post.comments
+    .map((comment, index) => ({ comment, index }))
+    .filter(({ comment }) => comment.picked && (comment.text.trim() || comment.name.trim()))
+    .slice(0, MAX_COMMENTS);
 
   /** 展示中的留言裡，有沒有任何一則是貼連結指定的。 */
   const linked = comments.some(({ comment }) => comment.fromLink);

@@ -496,14 +496,9 @@ async function withOneComment(page, fill) {
   await page.evaluate(() => document.querySelector("#apply").click());
   await page.waitForTimeout(600);
 
+  // 手動新增的留言預設就是勾選的，不必再另外指定要展示幾則。
   await page.evaluate(() => document.querySelector("#add-comment").click());
   await fill(page);
-
-  await page.evaluate(() => {
-    const sel = document.querySelector("#s-comment-limit");
-    sel.value = "1";
-    sel.dispatchEvent(new Event("change", { bubbles: true }));
-  });
   await page.waitForTimeout(800);
   return railPixels(page);
 }
@@ -565,9 +560,6 @@ test("有留言但沒貼連結時，貼文圖片維持滿版", async () => {
     const area = document.querySelector(".comment-row textarea");
     area.value = "手動打的留言";
     area.dispatchEvent(new Event("input", { bubbles: true }));
-    const sel = document.querySelector("#s-comment-limit");
-    sel.value = "1";
-    sel.dispatchEvent(new Event("change", { bubbles: true }));
   });
   await page.waitForTimeout(800);
 
@@ -579,4 +571,41 @@ test("有留言但沒貼連結時，貼文圖片維持滿版", async () => {
     Math.abs(after - before) <= 2,
     `多了一則留言就把圖片縮窄了（${before} → ${after}）`,
   );
+});
+
+test("取消勾選的留言不會畫進卡片，勾回來又會出現", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+  const { errors } = await renderWith(page, 1);
+  const height = () => page.evaluate(() => document.querySelector("#canvas").height);
+  const base = await height();
+
+  await page.evaluate(() => {
+    document.querySelector("#add-comment").click();
+    const area = document.querySelector(".comment-row textarea");
+    area.value = "勾選測試的留言";
+    area.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForTimeout(600);
+  const withComment = await height();
+
+  const toggle = () =>
+    page.evaluate(() => {
+      const box = document.querySelector(".comment-pick input");
+      box.checked = !box.checked;
+      box.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+
+  await toggle();
+  await page.waitForTimeout(600);
+  const unpicked = await height();
+
+  await toggle();
+  await page.waitForTimeout(600);
+  const repicked = await height();
+  await page.close();
+
+  assert.deepEqual(errors, []);
+  assert.ok(withComment > base, `勾選的留言沒有畫出來（${base} → ${withComment}）`);
+  assert.equal(unpicked, base, "取消勾選後卡片應該回到沒有留言的高度");
+  assert.equal(repicked, withComment, "勾回來後留言應該再次出現");
 });

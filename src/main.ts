@@ -214,7 +214,9 @@ function fillFromFetched(data: FetchedPost): void {
   //
   // Worker 已經依讚數排好序了，這裡不再重排 —— 它看得到整串，我們只收到前幾則。
   const fetched = (data.comments ?? []).filter((c) => c.text.trim()).slice(0, MAX_COMMENTS);
-  post.comments = fetched.map((c) => ({
+  post.comments = fetched.map((c, index) => ({
+    // 預設勾幾則沿用使用者上一次的習慣；之後每則都能自己勾掉或勾回來。
+    picked: index < style.commentLimit,
     name: c.name || c.username,
     handle: c.username,
     text: c.text,
@@ -351,17 +353,14 @@ function applyIntake(): void {
   } else if (parsed.url) {
     setStatus(
       "err",
-      "只收到網址，但這台裝置還沒設定取文服務。下面已經幫你展開「自動帶入」，" +
+      "只收到網址，但這台裝置還沒設定取文服務。已經幫你打開設定，" +
         "把 Worker 網址填進去就會自動帶入；或直接複製貼文文字貼上來。",
     );
-    // 光是展開還不夠 —— 那個區塊在畫面下方，不捲過去等於沒提示。
+    // 位址欄收在「進階」底下，只打開設定頁的話使用者看不到要填哪裡。
     // 但不要自動聚焦設定欄位：游標留在那裡的話，使用者下一次貼連結
     // 會貼進設定欄而不是輸入框，把取文位址覆蓋成一條 Threads 連結。
-    const sheet = $("fetch-sheet");
-    sheet.setAttribute("open", "");
-    // 位址欄收在「進階」底下，只展開外層的話使用者看不到要填哪裡。
     $("worker-advanced").setAttribute("open", "");
-    sheet.scrollIntoView({ behavior: "smooth", block: "center" });
+    openSettings();
   } else {
     setStatus(
       "err",
@@ -464,6 +463,16 @@ $("worker-clear").addEventListener("click", () => {
   showWorkerState();
 });
 
+// ── 設定頁 ───────────────────────────────────────────────
+const settings = $<HTMLDialogElement>("settings");
+
+function openSettings(): void {
+  if (!settings.open) settings.showModal();
+}
+
+$("settings-open").addEventListener("click", openSettings);
+$("settings-close").addEventListener("click", () => settings.close());
+
 // ── 樣式預設 ─────────────────────────────────────────────
 const presetList = $("presets");
 
@@ -564,12 +573,8 @@ async function fillCommentFrom(url: string, index: number): Promise<void> {
   comment.reposts = formatCount(data.reposts);
   comment.shares = formatCount(data.shares);
 
-  // 留言區塊預設不畫在卡片上。帶入了卻看不到，使用者會以為沒成功。
-  if (style.commentLimit < index + 1) {
-    style.commentLimit = index + 1;
-    $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
-    commit();
-  }
+  // 特地貼連結指定的留言一定要畫出來，帶入了卻看不到，使用者會以為沒成功。
+  comment.picked = true;
 
   // 圖片慢，先讓文字出現；載到了再補畫一次。
   if (data.avatar) {
@@ -592,6 +597,17 @@ async function fillCommentFrom(url: string, index: number): Promise<void> {
   }
 }
 
+/**
+ * 正在編輯的留言。只存在這次開啟期間 —— 重畫清單時要記得哪幾則是展開的，
+ * 不然每打一個字觸發的重畫都會把表單收起來。
+ */
+const editingComments = new WeakSet<Comment>();
+
+/** 還沒有任何內容的留言（剛按「手動新增」的那則）一定要展開，否則無從填起。 */
+function isEditing(comment: Comment): boolean {
+  return editingComments.has(comment) || !(comment.text.trim() || comment.name.trim());
+}
+
 function paintComments(): void {
   commentList.replaceChildren();
 
@@ -601,8 +617,38 @@ function paintComments(): void {
 
     const head = document.createElement("div");
     head.className = "comment-head";
-    const title = document.createElement("span");
-    title.textContent = `留言 ${index + 1}`;
+
+    // 勾選列：勾起來就畫進卡片。一眼看得到是誰、說了什麼，不必先展開表單。
+    const pick = document.createElement("label");
+    pick.className = "comment-pick";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = comment.picked;
+    box.addEventListener("change", () => {
+      comment.picked = box.checked;
+      // 記住這次勾了幾則，下一則貼文帶入時照同樣的數量預先勾好。
+      style.commentLimit = post.comments.filter((c) => c.picked).length;
+      commit();
+    });
+    const summary = document.createElement("span");
+    summary.className = "comment-summary";
+    const who = document.createElement("strong");
+    who.textContent = comment.handle ? `@${comment.handle}` : comment.name || "（還沒填）";
+    const said = document.createElement("span");
+    said.textContent = comment.text.replace(/\s+/g, " ").trim();
+    summary.append(who, said);
+    pick.append(box, summary);
+
+    const editing = isEditing(comment);
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.textContent = editing ? "收起" : "編輯";
+    edit.addEventListener("click", () => {
+      if (editingComments.has(comment)) editingComments.delete(comment);
+      else editingComments.add(comment);
+      paintComments();
+    });
+
     const remove = document.createElement("button");
     remove.type = "button";
     remove.textContent = "刪除";
@@ -613,7 +659,10 @@ function paintComments(): void {
       paintComments();
       draw();
     });
-    head.append(title, remove);
+    const tools = document.createElement("span");
+    tools.className = "comment-tools";
+    tools.append(edit, remove);
+    head.append(pick, tools);
 
     const bind = <K extends keyof Comment>(el: HTMLInputElement | HTMLTextAreaElement, key: K) => {
       el.value = comment[key] as string;
@@ -673,9 +722,9 @@ function paintComments(): void {
       draw();
     });
 
-    const who = document.createElement("div");
-    who.className = "triple";
-    who.append(labelled("名稱", name), labelled("帳號", handle));
+    const names = document.createElement("div");
+    names.className = "triple";
+    names.append(labelled("名稱", name), labelled("帳號", handle));
 
     const bottom = document.createElement("div");
     bottom.className = "triple";
@@ -737,20 +786,28 @@ function paintComments(): void {
     linkRow.className = "comment-link";
     linkRow.append(link, load);
 
-    row.append(head, linkRow, status, who, labelled("內文", text, true), bottom, counters, media);
+    // 完整欄位收在「編輯」底下：多數時候只是挑要放哪幾則，不需要看到十個欄位。
+    const form = document.createElement("div");
+    form.className = "comment-edit";
+    form.hidden = !editing;
+    form.append(linkRow, status, names, labelled("內文", text, true), bottom, counters, media);
+
+    row.append(head, form);
     commentList.append(row);
   });
 
   addComment.disabled = post.comments.length >= MAX_COMMENTS;
   $("comment-hint").textContent =
-    post.comments.length >= MAX_COMMENTS
-      ? `最多 ${MAX_COMMENTS} 則。自動帶入會先填上貼文底下的留言，你可以直接改寫或刪掉。`
-      : `最多 ${MAX_COMMENTS} 則，依照你排列的順序顯示。`;
+    post.comments.length === 0
+      ? "帶入貼文後，底下讚數最高的留言會列在這裡，勾起來就會放進卡片。"
+      : `勾起來的會依序放進卡片，最多 ${MAX_COMMENTS} 則。`;
 }
 
 addComment.addEventListener("click", () => {
   if (post.comments.length >= MAX_COMMENTS) return;
-  post.comments.push(emptyComment());
+  const fresh = emptyComment();
+  editingComments.add(fresh);
+  post.comments.push(fresh);
   assets.commentAvatars.push(null);
   assets.commentImages.push(null);
   paintComments();
@@ -997,19 +1054,9 @@ fontSelect.addEventListener("change", () => {
   commit();
 });
 
-const counters: [string, "imageLimit" | "commentLimit"][] = [
-  ["s-comment-limit", "commentLimit"],
-];
-
-for (const [id, key] of counters) {
-  const el = $<HTMLSelectElement>(id);
-  el.addEventListener("change", () => {
-    style[key] = Number(el.value);
-    commit();
-  });
-}
-
 $("reset").addEventListener("click", () => {
+  // 關掉設定頁，讓使用者直接看到卡片變回預設的樣子。
+  settings.close();
   // 只重設排版，不動已經輸入的貼文內容 —— 那些重打一次成本太高。
   style = defaultStyle();
   assets.bg = null;
@@ -1058,7 +1105,6 @@ function syncControls(): void {
   $<HTMLInputElement>("s-ink").value = style.textColor;
   $<HTMLInputElement>("s-ink-hex").value = style.textColor.toUpperCase();
   $<HTMLSelectElement>("s-font").value = style.fontId;
-  $<HTMLSelectElement>("s-comment-limit").value = String(style.commentLimit);
   for (const radio of document.querySelectorAll<HTMLInputElement>('input[name="ratio"]')) {
     radio.checked = radio.value === style.ratio;
   }
