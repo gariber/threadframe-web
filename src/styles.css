@@ -194,6 +194,23 @@ button:disabled {
   display: none;
 }
 
+.video-actions[hidden] {
+  display: none;
+}
+
+.video-actions .actions {
+  margin-bottom: 0.4rem;
+}
+
+.video-actions .actions button {
+  flex: 1;
+  padding: 0.8rem 1rem;
+}
+
+.video-actions .hint {
+  margin: 0 0 1rem;
+}
+
 /* 遮蔽作者：分享鈕底下的一顆小開關。 */
 .chip {
   display: inline-flex;

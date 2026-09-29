@@ -242,6 +242,8 @@ function pngSolid(w, h, [r, g, b]) {
  * 綁在它上面才穩。
  */
 let fakePost = null;
+/** 影片卡片測試用的影片檔（Buffer），由測試在瀏覽器裡現錄一支。 */
+let fakeVideo = null;
 let hangFakeImages = false;
 
 function fakeWorkerPost(overrides = {}) {
@@ -276,6 +278,18 @@ function serveFakeWorker() {
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? "/", "http://fake");
     const img = url.searchParams.get("img");
+
+    // 影片卡片測試用的影片檔。app 直接從影片網址載入（不經 ?img= 代理），
+    // 跟真實的 Threads 影片 CDN 一樣要帶 CORS 標頭，否則畫布會被污染。
+    if (url.pathname === "/clip.webm" && fakeVideo) {
+      res.writeHead(200, {
+        "content-type": "video/webm",
+        "access-control-allow-origin": "*",
+        "content-length": fakeVideo.length,
+      });
+      res.end(fakeVideo);
+      return;
+    }
 
     if (img) {
       // 用來重現「主貼文已回來，但某張 CDN 圖永遠沒有成功或失敗事件」。
@@ -608,4 +622,160 @@ test("取消勾選的留言不會畫進卡片，勾回來又會出現", async ()
   assert.ok(withComment > base, `勾選的留言沒有畫出來（${base} → ${withComment}）`);
   assert.equal(unpicked, base, "取消勾選後卡片應該回到沒有留言的高度");
   assert.equal(repicked, withComment, "勾回來後留言應該再次出現");
+});
+
+
+/**
+ * 在瀏覽器裡現錄一支純洋紅色、帶聲音的短影片當測試素材。
+ *
+ * 不附二進位樣本檔：Playwright 的 Chromium 解不了 H.264，也不該為了測試多裝 ffmpeg。
+ * 用同一顆瀏覽器錄 WebM，它一定解得開。
+ */
+async function makeTestVideo(seconds = 2.5) {
+  const page = await browser.newPage();
+  try {
+    const b64 = await page.evaluate(async (ms) => {
+      const c = document.createElement("canvas");
+      c.width = 640;
+      c.height = 360;
+      const ctx = c.getContext("2d");
+      const audio = new AudioContext();
+      const osc = audio.createOscillator();
+      const dest = audio.createMediaStreamDestination();
+      osc.connect(dest);
+      osc.start();
+      const stream = new MediaStream([
+        ...c.captureStream(30).getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ]);
+      const rec = new MediaRecorder(stream, { mimeType: "video/webm" });
+      const chunks = [];
+      rec.ondataavailable = (e) => chunks.push(e.data);
+      const done = new Promise((ok) => (rec.onstop = ok));
+      rec.start(250);
+      const t0 = performance.now();
+      await new Promise((ok) => {
+        const tick = () => {
+          ctx.fillStyle = "rgb(255, 0, 255)";
+          ctx.fillRect(0, 0, 640, 360);
+          if (performance.now() - t0 < ms) requestAnimationFrame(tick);
+          else ok();
+        };
+        tick();
+      });
+      rec.stop();
+      await done;
+      const buf = new Uint8Array(await new Blob(chunks).arrayBuffer());
+      let bin = "";
+      for (const b of buf) bin += String.fromCharCode(b);
+      return btoa(bin);
+    }, seconds * 1000);
+    return Buffer.from(b64, "base64");
+  } finally {
+    await page.close();
+  }
+}
+
+/** 畫布上洋紅色（測試影片的顏色）的像素數。 */
+function magentaPixels(page) {
+  return page.evaluate(() => {
+    const c = document.querySelector("#canvas");
+    const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 16) {
+      if (d[i] > 200 && d[i + 1] < 60 && d[i + 2] > 200) n++;
+    }
+    return n;
+  });
+}
+
+test("影片貼文：影片畫進卡片的媒體格，錄成影片後可以下載並正常解碼", async () => {
+  fakeVideo = await makeTestVideo();
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, acceptDownloads: true });
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(String(e)));
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  await page.route("https://static.cloudflareinsights.com/**", (route) =>
+    route.fulfill({ status: 200, contentType: "text/javascript", body: "" }),
+  );
+
+  try {
+    fakePost = fakeWorkerPost({
+      images: swatchUrls(1),
+      mediaCount: 1,
+      video: { url: `${fakeWorker}/clip.webm`, width: 640, height: 360 },
+    });
+    await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+    await page.fill("#intake", "https://www.threads.com/@someone/post/FakeCode");
+    await page.evaluate(() => document.querySelector("#apply").click());
+
+    // 影片載好後錄製區才會出現。
+    await page.waitForFunction(() => !document.querySelector("#video-actions").hidden, undefined, {
+      timeout: 15000,
+    });
+    await page.waitForTimeout(500);
+    const onCard = await magentaPixels(page);
+    assert.ok(onCard > 5000, `卡片的媒體格裡沒有畫出影片（洋紅像素 ${onCard}）`);
+
+    await page.evaluate(() => document.querySelector("#record").click());
+    await page.waitForFunction(() => !document.querySelector("#share-video").hidden, undefined, {
+      timeout: 20000,
+    });
+    const hint = await page.textContent("#video-hint");
+    assert.match(hint ?? "", /錄好了/);
+    // 錄完影片會跳回開頭重播，那一瞬間不能讓整個錄製區（連同分享鈕）消失。
+    await page.waitForTimeout(500);
+    assert.equal(
+      await page.evaluate(() => document.querySelector("#video-actions").hidden),
+      false,
+      "錄完之後錄製區不見了，使用者按不到「分享影片」",
+    );
+
+    // 無頭 Chromium 沒有 Web Share，分享鈕會退回下載 —— 正好拿到錄出來的檔案。
+    const [download] = await Promise.all([
+      page.waitForEvent("download"),
+      page.evaluate(() => document.querySelector("#share-video").click()),
+    ]);
+    const file = await readFile(await download.path());
+    assert.ok(file.length > 10_000, `錄出來的檔案太小（${file.length} bytes）`);
+
+    // 把錄好的檔案放回瀏覽器解一次：要能播、長度合理、畫面裡要有影片的顏色。
+    const check = await page.evaluate(async (b64) => {
+      const bytes = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
+      const v = document.createElement("video");
+      v.muted = true;
+      v.src = URL.createObjectURL(new Blob([bytes]));
+      await new Promise((ok, fail) => {
+        v.onloadeddata = ok;
+        v.onerror = () => fail(new Error("錄出來的檔案解不開"));
+      });
+      // MediaRecorder 的 WebM 常常不寫長度，要跳到最後才算得出來。
+      if (!Number.isFinite(v.duration)) {
+        v.currentTime = 1e6;
+        await new Promise((ok) => (v.ontimeupdate = ok));
+      }
+      const duration = v.duration;
+      v.currentTime = Math.min(1, duration / 2);
+      await new Promise((ok) => (v.onseeked = ok));
+      const c = document.createElement("canvas");
+      c.width = v.videoWidth;
+      c.height = v.videoHeight;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(v, 0, 0);
+      const d = ctx.getImageData(0, 0, c.width, c.height).data;
+      let magenta = 0;
+      for (let i = 0; i < d.length; i += 16) {
+        if (d[i] > 180 && d[i + 1] < 90 && d[i + 2] > 180) magenta++;
+      }
+      return { duration, width: v.videoWidth, magenta };
+    }, file.toString("base64"));
+
+    assert.equal(check.width, 1080, "輸出影片的寬度應該跟卡片一樣是 1080");
+    assert.ok(check.duration > 1.5, `錄出來的影片太短（${check.duration} 秒）`);
+    assert.ok(check.magenta > 1000, `錄出來的影片裡看不到影片畫面（洋紅像素 ${check.magenta}）`);
+    assert.deepEqual(errors, []);
+  } finally {
+    fakeVideo = null;
+    await page.close();
+  }
 });

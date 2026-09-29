@@ -361,6 +361,30 @@ function collectImages(post) {
   return out.slice(0, 4);
 }
 
+/**
+ * 影片貼文的影片檔。
+ *
+ * media_type 2 是影片；輪播則看第一則 —— 卡片的第一格就是它，影片會在那一格播放。
+ * 其餘格維持靜態封面：好幾格同時播放在手機上又慢又吵，也看不出重點在哪。
+ *
+ * video_versions 是同一支影片的幾種版本，實測檔案大小一模一樣，取第一個即可。
+ * 影片 CDN 本身就帶 `access-control-allow-origin: *` 且支援 Range，
+ * 前端直接載入，不必經過這支 Worker 轉手。
+ */
+function pickVideo(post) {
+  const node = Array.isArray(post.carousel_media) ? post.carousel_media[0] : post;
+  if (!node || node.media_type !== 2) return null;
+  const version = Array.isArray(node.video_versions)
+    ? node.video_versions.find((v) => typeof v?.url === "string")
+    : null;
+  if (!version) return null;
+  return {
+    url: version.url,
+    width: node.original_width ?? null,
+    height: node.original_height ?? null,
+  };
+}
+
 /** Threads 話題是獨立的 header，不是 caption 裡的 hashtag。 */
 function topicName(post) {
   const value = post?.text_post_app_info?.tag_header?.display_name;
@@ -555,6 +579,7 @@ async function handlePost(target, cors) {
       reposts: info.repost_count ?? null,
       shares: info.reshare_count ?? null,
       images: collectImages(post),
+      video: pickVideo(post),
       mediaCount: mediaCount(post),
       comments: topComments(comments),
     },
