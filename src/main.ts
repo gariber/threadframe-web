@@ -21,7 +21,8 @@ import {
   type FetchedPost,
 } from "./fetchPost";
 import { parsePastedPost, parseThreadsUrl } from "./parse";
-import { renderCard, type Assets } from "./render";
+import { renderCard, type Assets, type MediaSlot } from "./render";
+import { canRecordVideo, MAX_VIDEO_SECONDS, VideoCard } from "./videoCard";
 import {
   defaultStyle,
   emptyComment,
@@ -56,6 +57,17 @@ const assets: Assets = {
 
 const canvas = $<HTMLCanvasElement>("canvas");
 const emptyMsg = $("empty");
+
+/** 影片卡片：影片貼文時，影片在卡片的媒體格裡播放，也能錄成影片分享。 */
+const videoCard = new VideoCard(canvas, () => style.panelColor);
+const mediaSlots: MediaSlot[] = [];
+
+/** 算繪卡片，有影片時順便把目前這一格影片疊上去。 */
+function renderAll(): void {
+  renderCard(canvas, post, style, assets, mediaSlots);
+  videoCard.afterRender(mediaSlots);
+  syncVideoUi();
+}
 
 // ── 圖片載入 ─────────────────────────────────────────────
 const MAX_SIDE = 2048;
@@ -118,12 +130,20 @@ function draw(): void {
     $<HTMLButtonElement>("download").disabled = !ready;
     // 畫面變了，先前備好的圖檔就過期了。
     pendingFile = null;
+    if (!videoCard.recording) dropRecordedVideo();
     if (ready) {
-      renderCard(canvas, post, style, assets);
+      // 錄影中不能動畫布尺寸（錄到一半變形），等錄完再補畫。
+      if (videoCard.recording) {
+        drawAfterRecording = true;
+        return;
+      }
+      renderAll();
       scheduleFile();
     }
   });
 }
+
+let drawAfterRecording = false;
 
 function commit(): void {
   saveStyle(style);
@@ -193,6 +213,20 @@ function formatPostTime(): string {
 
 function fillFromFetched(data: FetchedPost): void {
   const generation = ++fetchGeneration;
+
+  // 上一則的影片一定要先拿掉，不然新卡片的第一格會播著上一則的影片。
+  videoCard.clear();
+  if (data.video?.url) {
+    videoCard
+      .load(data.video.url)
+      .then(() => {
+        if (generation === fetchGeneration) draw();
+      })
+      .catch(() => {
+        // 影片載不到時卡片仍是完整的靜態卡片（封面圖本來就排好了），只是不能錄影片。
+        if (generation === fetchGeneration) setStatus("hint", "影片載入失敗，這張卡片只能存成圖片。");
+      });
+  }
 
   post.name = data.name || data.username;
   // topic 是後加的選用欄位。帶入沒有話題的下一則時一定要清空，
@@ -331,7 +365,11 @@ function applyIntake(): void {
 
   // 直接貼整段文字代表正在切換到另一則貼文。這種格式沒有可靠的話題欄位，
   // 因此必須清空上一則自動帶入的話題，避免掛到新作者與正文旁。
-  if (pastedContent) post.topic = "";
+  if (pastedContent) {
+    post.topic = "";
+    // 貼文字進來就是換成另一則貼文，沒有影片可播。
+    videoCard.clear();
+  }
 
   if (parsed.name !== undefined) post.name = parsed.name;
   if (parsed.handle !== undefined) post.handle = parsed.handle;
@@ -1151,7 +1189,7 @@ function scheduleFile(): void {
 
 async function currentFile(): Promise<File | null> {
   if (pendingFile) return pendingFile;
-  renderCard(canvas, post, style, assets);
+  if (!videoCard.recording) renderAll();
   pendingFile = await makeFile();
   return pendingFile;
 }
@@ -1227,6 +1265,95 @@ zoom.addEventListener("click", () => zoom.close());
 zoom.addEventListener("close", () => {
   URL.revokeObjectURL(zoomImg.src);
   zoomImg.removeAttribute("src");
+});
+
+// ── 影片卡片 ─────────────────────────────────────────────
+const videoActions = $("video-actions");
+const recordBtn = $<HTMLButtonElement>("record");
+const shareVideoBtn = $<HTMLButtonElement>("share-video");
+const videoHint = $("video-hint");
+const canRecord = canRecordVideo(canvas);
+
+/** 錄好的影片檔。卡片一改（換樣式、換貼文）就作廢，免得分享出去的是舊的樣子。 */
+let recordedVideo: File | null = null;
+
+function setVideoHint(text: string): void {
+  videoHint.textContent = text;
+}
+
+function dropRecordedVideo(): void {
+  recordedVideo = null;
+  shareVideoBtn.hidden = true;
+}
+
+/** 依影片狀態更新錄製區。影片沒載好、或這台裝置錄不了，就整區不出現。 */
+function syncVideoUi(): void {
+  videoActions.hidden = !(videoCard.active && canRecord);
+  if (videoCard.recording) return;
+  const seconds = Math.round(videoCard.recordSeconds);
+  recordBtn.textContent = seconds > 0 ? `錄成影片（${seconds} 秒）` : "錄成影片";
+  if (!recordedVideo) {
+    setVideoHint(
+      `影片會即時錄製，影片多長就錄多久（最長 ${MAX_VIDEO_SECONDS} 秒）。` +
+        "錄製時請停在這個畫面，不要切換 App 或讓螢幕關掉。",
+    );
+  }
+}
+
+function formatMB(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+recordBtn.addEventListener("click", () => {
+  if (videoCard.recording) {
+    videoCard.stopRecording();
+    return;
+  }
+
+  dropRecordedVideo();
+  const started = Date.now();
+  recordBtn.textContent = "停止錄製";
+  setVideoHint("錄製中⋯ 請停在這個畫面。");
+
+  // 必須在點擊當下同步開始：iPhone 只允許在點擊裡打開影片聲音。
+  videoCard.startRecording({
+    fileBase: fileName().replace(/\.png$/, ""),
+    onProgress: (seconds, total) => {
+      recordBtn.textContent = `停止錄製（${Math.floor(seconds)} / ${Math.round(total)} 秒）`;
+    },
+    onDone: (file, error) => {
+      if (file) {
+        recordedVideo = file;
+        shareVideoBtn.hidden = false;
+        const seconds = Math.round((Date.now() - started) / 1000);
+        const kind = file.type === "video/mp4" ? "MP4" : "WebM";
+        setVideoHint(`錄好了：約 ${seconds} 秒、${formatMB(file.size)}（${kind}）。按「分享影片」存進相簿或傳出去。`);
+      } else {
+        setVideoHint(error ?? "沒有錄到畫面。請停在這個畫面再錄一次。");
+      }
+      syncVideoUi();
+      if (drawAfterRecording) {
+        drawAfterRecording = false;
+        draw();
+      }
+    },
+  });
+});
+
+shareVideoBtn.addEventListener("click", async () => {
+  const file = recordedVideo;
+  if (!file) return;
+  // 錄製要花幾十秒，按下「錄成影片」那一次的點擊早就過期了，
+  // 所以分享一定要是另一次點擊 —— 這也是為什麼錄完不直接跳分享選單。
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file] });
+      return;
+    } catch (e) {
+      if ((e as Error).name === "AbortError") return;
+    }
+  }
+  downloadFile(file);
 });
 
 // ── 分享目標（從 Threads 分享到這個 PWA） ────────────────

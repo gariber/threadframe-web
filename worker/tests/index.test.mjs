@@ -332,3 +332,29 @@ test("連線層一直失敗時回帶 CORS 的 JSON，而不是讓 Worker 炸掉"
     globalThis.setTimeout = originalSetTimeout;
   }
 });
+
+test("影片貼文會帶出影片網址與原始尺寸", async () => {
+  const target = "https://www.threads.com/@teddy/post/VideoCode";
+  const video = post("VideoCode", "teddy", "影片貼文");
+  video.media_type = 2;
+  video.original_width = 1280;
+  video.original_height = 720;
+  video.video_versions = [
+    { type: 101, url: "https://scontent.cdninstagram.com/v/clip.mp4" },
+    { type: 102, url: "https://scontent.cdninstagram.com/v/clip-sd.mp4" },
+  ];
+  const result = await fetchPost(target, [upstream(target, [video])]);
+
+  assert.equal(result.response.status, 200);
+  assert.deepEqual(result.body.video, {
+    url: "https://scontent.cdninstagram.com/v/clip.mp4",
+    width: 1280,
+    height: 720,
+  });
+});
+
+test("圖片貼文的 video 是 null", async () => {
+  const target = "https://www.threads.com/@teddy/post/PhotoCode";
+  const result = await fetchPost(target, [upstream(target, [post("PhotoCode", "teddy", "圖片")])]);
+  assert.equal(result.body.video, null);
+});

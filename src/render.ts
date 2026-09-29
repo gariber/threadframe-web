@@ -26,6 +26,51 @@ export type Assets = {
   mediaTotal: number;
 };
 
+/**
+ * 貼文媒體在輸出畫布上的位置（畫布座標）。
+ *
+ * 影片卡片靠它運作：卡片本體只算繪一次，之後每一格影格只把影片畫進這一格，
+ * 不必每秒重排三十次文字、重做一次毛玻璃模糊。
+ */
+export type MediaSlot = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  radius: number;
+  /** 單張完整呈現（contain）；多張格狀排列時填滿格子（cover）。 */
+  fit: "contain" | "cover";
+};
+
+/**
+ * 把一格影片（或任何畫面來源）畫進媒體格，裁切方式與靜態圖片一致。
+ *
+ * 先鋪一層底色：影片比例與封面圖若有些微差異，contain 留下的邊不會露出底下的封面。
+ */
+export function paintMediaFrame(
+  ctx: CanvasRenderingContext2D,
+  slot: MediaSlot,
+  source: CanvasImageSource,
+  sourceW: number,
+  sourceH: number,
+  backdrop: string,
+): void {
+  if (sourceW <= 0 || sourceH <= 0) return;
+  ctx.save();
+  roundRect(ctx, slot.x, slot.y, slot.w, slot.h, slot.radius);
+  ctx.clip();
+  ctx.fillStyle = backdrop;
+  ctx.fillRect(slot.x, slot.y, slot.w, slot.h);
+  const scale =
+    slot.fit === "contain"
+      ? Math.min(slot.w / sourceW, slot.h / sourceH)
+      : Math.max(slot.w / sourceW, slot.h / sourceH);
+  const dw = sourceW * scale;
+  const dh = sourceH * scale;
+  ctx.drawImage(source, slot.x + (slot.w - dw) / 2, slot.y + (slot.h - dh) / 2, dw, dh);
+  ctx.restore();
+}
+
 const CJK_RE = /[ᄀ-ᇿ⺀-鿿　-〿가-힯豈-﫿＀-￯]/;
 /** 不該出現在行首的收尾標點。 */
 const NO_LINE_START = "、。，．：；！？」』）》〉】〕｝”’,.:;!?)]}%";
@@ -433,6 +478,7 @@ function layout(
   style: Style,
   assets: Assets,
   contentW: number,
+  slots?: MediaSlot[],
 ): Metrics {
   const ink = style.textColor;
   const size = style.textSize;
@@ -650,6 +696,19 @@ function layout(
           const place = single ? drawContain : drawCover;
           place(c, img, cx, top + cell.y, cell.w, cell.h);
           c.restore();
+
+          if (slots) {
+            // 畫的當下 context 已經平移到底板內側，換算回畫布座標才給外面用。
+            const t = c.getTransform();
+            slots[i] = {
+              x: t.e + cx,
+              y: t.f + top + cell.y,
+              w: cell.w,
+              h: cell.h,
+              radius: single ? corner : corner * 0.75,
+              fit: single ? "contain" : "cover",
+            };
+          }
         });
 
         if (hidden > 0) {
@@ -1093,12 +1152,18 @@ function layout(
   };
 }
 
+/**
+ * 算繪整張卡片。傳入 slots 時，會把每一格貼文媒體在畫布上的位置填進去
+ * （影片卡片用；不需要的呼叫端不傳即可）。
+ */
 export function renderCard(
   canvas: HTMLCanvasElement,
   post: Post,
   style: Style,
   assets: Assets,
+  slots?: MediaSlot[],
 ): void {
+  if (slots) slots.length = 0;
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
 
@@ -1109,7 +1174,7 @@ export function renderCard(
   const contentW = EXPORT_W - pad * 2 - panelPad * 2;
 
   // 第一次量測用的 context 狀態不影響輸出，只是要拿到文字寬度。
-  const metrics = layout(ctx, post, style, assets, Math.max(80, contentW));
+  const metrics = layout(ctx, post, style, assets, Math.max(80, contentW), slots);
   const panelH = metrics.height + panelPad * 2;
   const contentH = panelH + pad * 2;
 
@@ -1123,7 +1188,9 @@ export function renderCard(
     square: EXPORT_W,
     auto: 0,
   };
-  const H = Math.max(contentH, MIN_HEIGHT[style.ratio] ?? 0);
+  // 高度一律取偶數：錄成影片時 H.264 要求長寬都是偶數，奇數高度會讓錄製失敗。
+  const minH = Math.max(contentH, MIN_HEIGHT[style.ratio] ?? 0);
+  const H = minH + (minH % 2);
 
   canvas.width = EXPORT_W;
   canvas.height = H;

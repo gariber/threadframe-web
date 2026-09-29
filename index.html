@@ -79,6 +79,19 @@
         <button id="export" type="button" class="primary export-btn">分享圖片</button>
         <button id="download" type="button" class="download-btn" hidden>下載</button>
       </div>
+      <!--
+        影片貼文才會出現：把卡片連同正在播放的影片與原聲錄成一支影片。
+        錄製是即時的，錄完要再按一次「分享影片」（錄製那一下的點擊早已過期，
+        瀏覽器不讓非點擊當下叫出分享選單）。
+      -->
+      <div class="video-actions" id="video-actions" hidden>
+        <div class="actions">
+          <button id="record" type="button" class="record-btn">錄成影片</button>
+          <button id="share-video" type="button" class="primary" hidden>分享影片</button>
+        </div>
+        <p class="hint" id="video-hint"></p>
+      </div>
+
       <!-- 遮不遮作者是「這一張」的決定，擺在分享鈕旁邊，不是設定。 -->
       <label class="chip"><input id="t-mask" type="checkbox" />遮蔽作者身分</label>
 

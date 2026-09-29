@@ -29,6 +29,11 @@ export type FetchedPost = {
   shares: number | null;
   images: string[];
   /**
+   * 選用：影片貼文（或第一則是影片的輪播）的影片檔。舊版 Worker 不會回傳；
+   * 圖片貼文為 null。images[0] 仍是它的封面，排版照封面算。
+   */
+  video?: { url: string; width: number | null; height: number | null } | null;
+  /**
    * 選用：原貼文實際有幾則媒體，可能大於 images.length。
    * 舊版 Worker 不會回這個欄位，呼叫端要能接受它不存在。
    */
