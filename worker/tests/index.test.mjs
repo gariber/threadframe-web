@@ -358,3 +358,23 @@ test("圖片貼文的 video 是 null", async () => {
   const result = await fetchPost(target, [upstream(target, [post("PhotoCode", "teddy", "圖片")])]);
   assert.equal(result.body.video, null);
 });
+
+test("限定特定受眾的貼文：明確回報原因，而且不重抓", async () => {
+  const target = "https://www.threads.com/share/BAWcvdpMOh/";
+  const blocked = {
+    status: 200,
+    ok: true,
+    url: "https://www.threads.com/@someone/post/Dd1RWpNEg9f?xmt=abc",
+    text: async () =>
+      '<script>{"props":{"title":"This content isn\'t available to everyone",' +
+      '"description":"It can\'t be seen by certain audiences."},' +
+      '"entryPoint":{"__dr":"BarcelonaGeoBlockedErrorRoot.entrypoint"}}</script>',
+  };
+  const result = await fetchPost(target, [blocked, blocked, blocked]);
+
+  assert.equal(result.response.status, 404);
+  assert.equal(result.body.error, "post_restricted");
+  assert.match(result.body.message, /特定受眾/);
+  // 重抓也是同一頁，不該讓使用者多等兩趟。
+  assert.equal(result.calls, 1);
+});
