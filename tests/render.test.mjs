@@ -281,12 +281,33 @@ function serveFakeWorker() {
 
     // 影片卡片測試用的影片檔。app 直接從影片網址載入（不經 ?img= 代理），
     // 跟真實的 Threads 影片 CDN 一樣要帶 CORS 標頭，否則畫布會被污染。
+    // 跟真的影片 CDN 一樣支援 Range：離線合成只抓需要的片段，不整支下載。
     if (url.pathname === "/clip.webm" && fakeVideo) {
-      res.writeHead(200, {
-        "content-type": "video/webm",
+      const cors = {
         "access-control-allow-origin": "*",
-        "content-length": fakeVideo.length,
-      });
+        "access-control-allow-headers": "range",
+        "access-control-expose-headers": "content-range, content-length",
+        "accept-ranges": "bytes",
+      };
+      if (req.method === "OPTIONS") {
+        res.writeHead(204, cors);
+        res.end();
+        return;
+      }
+      const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? "");
+      if (range) {
+        const start = Number(range[1]);
+        const end = range[2] ? Math.min(Number(range[2]), fakeVideo.length - 1) : fakeVideo.length - 1;
+        res.writeHead(206, {
+          ...cors,
+          "content-type": "video/webm",
+          "content-range": `bytes ${start}-${end}/${fakeVideo.length}`,
+          "content-length": end - start + 1,
+        });
+        res.end(fakeVideo.subarray(start, end + 1));
+        return;
+      }
+      res.writeHead(200, { ...cors, "content-type": "video/webm", "content-length": fakeVideo.length });
       res.end(fakeVideo);
       return;
     }
@@ -689,9 +710,19 @@ function magentaPixels(page) {
   });
 }
 
-test("影片貼文：影片畫進卡片的媒體格，錄成影片後可以下載並正常解碼", async () => {
+/**
+ * 影片卡片的完整流程：帶入 → 影片畫進媒體格 → 產生影片 → 下載 → 解碼檢查。
+ * `realtime` 為 true 時把 WebCodecs 拿掉，逼 app 走即時錄製那條退路。
+ */
+async function runVideoCardFlow({ realtime }) {
   fakeVideo = await makeTestVideo();
   const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, acceptDownloads: true });
+  if (realtime) {
+    await page.addInitScript(() => {
+      delete window.VideoEncoder;
+      delete window.VideoDecoder;
+    });
+  }
   const errors = [];
   page.on("pageerror", (e) => errors.push(String(e)));
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
@@ -722,7 +753,7 @@ test("影片貼文：影片畫進卡片的媒體格，錄成影片後可以下�
       timeout: 20000,
     });
     const hint = await page.textContent("#video-hint");
-    assert.match(hint ?? "", /錄好了/);
+    assert.match(hint ?? "", realtime ? /錄好了/ : /做好了/);
     // 錄完影片會跳回開頭重播，那一瞬間不能讓整個錄製區（連同分享鈕）消失。
     await page.waitForTimeout(500);
     assert.equal(
@@ -738,6 +769,8 @@ test("影片貼文：影片畫進卡片的媒體格，錄成影片後可以下�
     ]);
     const file = await readFile(await download.path());
     assert.ok(file.length > 10_000, `錄出來的檔案太小（${file.length} bytes）`);
+    // MP4 的音軌會有一個 handler 為 "soun" 的 trak。測試影片有聲音，輸出不能是無聲的。
+    assert.ok(file.includes(Buffer.from("soun")), "輸出的影片沒有音軌");
 
     // 把錄好的檔案放回瀏覽器解一次：要能播、長度合理、畫面裡要有影片的顏色。
     const check = await page.evaluate(async (b64) => {
@@ -778,4 +811,8 @@ test("影片貼文：影片畫進卡片的媒體格，錄成影片後可以下�
     fakeVideo = null;
     await page.close();
   }
-});
+}
+
+test("影片貼文：離線合成，影片畫進卡片、輸出可解碼", () => runVideoCardFlow({ realtime: false }));
+
+test("影片貼文：不支援 WebCodecs 時退回即時錄製", () => runVideoCardFlow({ realtime: true }));

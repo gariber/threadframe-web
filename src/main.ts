@@ -22,7 +22,8 @@ import {
 } from "./fetchPost";
 import { parsePastedPost, parseThreadsUrl } from "./parse";
 import { renderCard, type Assets, type MediaSlot } from "./render";
-import { canRecordVideo, MAX_VIDEO_SECONDS, VideoCard } from "./videoCard";
+import { canRecordVideo, MAX_VIDEO_HEIGHT, MAX_VIDEO_SECONDS, VideoCard } from "./videoCard";
+import { canComposeOffline, ComposeError, preloadComposer } from "./videoComposeLite";
 import {
   defaultStyle,
   emptyComment,
@@ -130,10 +131,10 @@ function draw(): void {
     $<HTMLButtonElement>("download").disabled = !ready;
     // 畫面變了，先前備好的圖檔就過期了。
     pendingFile = null;
-    if (!videoCard.recording) dropRecordedVideo();
+    if (!videoBusy()) dropRecordedVideo();
     if (ready) {
       // 錄影中不能動畫布尺寸（錄到一半變形），等錄完再補畫。
-      if (videoCard.recording) {
+      if (videoBusy()) {
         drawAfterRecording = true;
         return;
       }
@@ -220,7 +221,12 @@ function fillFromFetched(data: FetchedPost): void {
     videoCard
       .load(data.video.url)
       .then(() => {
-        if (generation === fetchGeneration) draw();
+        if (generation !== fetchGeneration) return;
+        // 換了一支影片，上一支合成失敗改用即時錄製的決定不該延續下來。
+        useRealtime = false;
+        draw();
+        // 趁使用者還在挑樣式，先把合成用的程式載好，按下去就能開始。
+        preloadComposer();
       })
       .catch(() => {
         // 影片載不到時卡片仍是完整的靜態卡片（封面圖本來就排好了），只是不能錄影片。
@@ -1189,7 +1195,7 @@ function scheduleFile(): void {
 
 async function currentFile(): Promise<File | null> {
   if (pendingFile) return pendingFile;
-  if (!videoCard.recording) renderAll();
+  if (!videoBusy()) renderAll();
   pendingFile = await makeFile();
   return pendingFile;
 }
@@ -1286,16 +1292,42 @@ function dropRecordedVideo(): void {
   shareVideoBtn.hidden = true;
 }
 
-/** 依影片狀態更新錄製區。影片沒載好、或這台裝置錄不了，就整區不出現。 */
+/** 這台裝置能離線合成（快，不必把影片播一遍）。不行才用即時錄製。 */
+const canCompose = canComposeOffline();
+
+/** 離線合成中；按鈕再按一次會用它取消。 */
+let composing: AbortController | null = null;
+
+/**
+ * 離線合成失敗、改走即時錄製。不能在失敗當下自動接著錄：那時點擊早已過期，
+ * iPhone 不讓非點擊當下打開影片聲音，錄出來會是無聲的。所以請使用者再按一次。
+ */
+let useRealtime = false;
+
+/** 正在產生影片（任一種方式）。這段期間卡片不能重畫，畫布尺寸一變就錄壞了。 */
+function videoBusy(): boolean {
+  return videoCard.recording || composing !== null;
+}
+
+function composeMode(): boolean {
+  return canCompose && !useRealtime;
+}
+
+/** 依影片狀態更新錄製區。影片沒載好、或這台裝置兩種方式都做不到，就整區不出現。 */
 function syncVideoUi(): void {
-  videoActions.hidden = !(videoCard.active && canRecord);
-  if (videoCard.recording) return;
+  videoActions.hidden = !(videoCard.active && (canCompose || canRecord));
+  if (videoBusy()) return;
   const seconds = Math.round(videoCard.recordSeconds);
-  recordBtn.textContent = seconds > 0 ? `錄成影片（${seconds} 秒）` : "錄成影片";
-  if (!recordedVideo) {
+  const len = seconds > 0 ? `（${seconds} 秒）` : "";
+  if (composeMode()) recordBtn.textContent = `製作影片${len}`;
+  else recordBtn.textContent = useRealtime ? `改用即時錄製${len}` : `錄成影片${len}`;
+  if (!recordedVideo && !useRealtime) {
     setVideoHint(
-      `影片會即時錄製，影片多長就錄多久（最長 ${MAX_VIDEO_SECONDS} 秒）。` +
-        "錄製時請停在這個畫面，不要切換 App 或讓螢幕關掉。",
+      composeMode()
+        ? `把影片直接合成進卡片，不必等影片播完（最長 ${MAX_VIDEO_SECONDS} 秒）。` +
+            "製作時請停在這個畫面。"
+        : `影片會即時錄製，影片多長就錄多久（最長 ${MAX_VIDEO_SECONDS} 秒）。` +
+            "錄製時請停在這個畫面，不要切換 App 或讓螢幕關掉。",
     );
   }
 }
@@ -1304,13 +1336,88 @@ function formatMB(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** 產生影片結束（不論成敗）後的收尾。 */
+function afterVideoJob(): void {
+  syncVideoUi();
+  if (drawAfterRecording) {
+    drawAfterRecording = false;
+    draw();
+  }
+}
+
+function showVideoResult(file: File, text: string): void {
+  recordedVideo = file;
+  shareVideoBtn.hidden = false;
+  setVideoHint(text);
+}
+
+async function composeVideo(): Promise<void> {
+  const snap = videoCard.snapshot();
+  if (!snap) return;
+  if (snap.base.height > MAX_VIDEO_HEIGHT) {
+    setVideoHint("卡片太長，做不成影片。少勾幾則留言、或縮小文字再試一次。");
+    return;
+  }
+
+  const controller = new AbortController();
+  composing = controller;
+  videoCard.pausePreview();
+  const started = Date.now();
+  recordBtn.textContent = "停止製作";
+  setVideoHint("製作中⋯ 請停在這個畫面。");
+
+  try {
+    // 合成程式（連同 Mediabunny）在這裡才載入；影片一載好就預先抓過了，通常是現成的。
+    const { composeVideoCard } = await import("./videoCompose");
+    const result = await composeVideoCard({
+      ...snap,
+      backdrop: style.panelColor,
+      fileBase: fileName().replace(/\.png$/, ""),
+      maxSeconds: MAX_VIDEO_SECONDS,
+      signal: controller.signal,
+      onProgress: (p) => {
+        recordBtn.textContent = `停止製作（${Math.round(p * 100)}%）`;
+      },
+    });
+    const took = Math.max(1, Math.round((Date.now() - started) / 1000));
+    showVideoResult(
+      result.file,
+      `做好了：${Math.round(result.seconds)} 秒的影片，花了 ${took} 秒，${formatMB(result.file.size)}。` +
+        (result.droppedAudio ? "這支影片的聲音格式帶不進來，影片是無聲的。" : "") +
+        "按「分享影片」存進相簿或傳出去。",
+    );
+  } catch (e) {
+    if (e instanceof ComposeError && e.kind === "canceled") {
+      setVideoHint("已停止。");
+    } else if (e instanceof ComposeError && e.kind === "fallback" && canRecord) {
+      useRealtime = true;
+      setVideoHint(`${e.message} 按「改用即時錄製」，改成把影片播一遍錄下來。`);
+    } else {
+      setVideoHint(e instanceof Error ? e.message : "製作失敗，請再試一次。");
+    }
+  } finally {
+    composing = null;
+    videoCard.resumePreview();
+    afterVideoJob();
+  }
+}
+
 recordBtn.addEventListener("click", () => {
+  if (composing) {
+    composing.abort();
+    return;
+  }
   if (videoCard.recording) {
     videoCard.stopRecording();
     return;
   }
 
   dropRecordedVideo();
+  if (composeMode()) {
+    void composeVideo();
+    return;
+  }
+
   const started = Date.now();
   recordBtn.textContent = "停止錄製";
   setVideoHint("錄製中⋯ 請停在這個畫面。");
@@ -1323,19 +1430,16 @@ recordBtn.addEventListener("click", () => {
     },
     onDone: (file, error) => {
       if (file) {
-        recordedVideo = file;
-        shareVideoBtn.hidden = false;
         const seconds = Math.round((Date.now() - started) / 1000);
         const kind = file.type === "video/mp4" ? "MP4" : "WebM";
-        setVideoHint(`錄好了：約 ${seconds} 秒、${formatMB(file.size)}（${kind}）。按「分享影片」存進相簿或傳出去。`);
+        showVideoResult(
+          file,
+          `錄好了：約 ${seconds} 秒、${formatMB(file.size)}（${kind}）。按「分享影片」存進相簿或傳出去。`,
+        );
       } else {
         setVideoHint(error ?? "沒有錄到畫面。請停在這個畫面再錄一次。");
       }
-      syncVideoUi();
-      if (drawAfterRecording) {
-        drawAfterRecording = false;
-        draw();
-      }
+      afterVideoJob();
     },
   });
 });

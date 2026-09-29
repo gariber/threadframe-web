@@ -7,9 +7,9 @@ import { paintMediaFrame, type MediaSlot } from "./render";
  * renderCard 畫好的整張卡片先存一份底圖，之後每來一格影片，就把底圖貼回畫布、
  * 再把這一格影片畫進媒體格。文字排版與毛玻璃模糊都很貴，每秒重做三十次手機會喘。
  *
- * 錄影用 canvas.captureStream 加 MediaRecorder，是**即時**錄製 —— 影片多長就要錄多久。
- * 瀏覽器沒有「離線快轉輸出」的通用做法（WebCodecs 在 iOS 上的音訊編碼還不齊全），
- * 即時錄是目前唯一在 iPhone 與電腦上都走得通、而且帶得到原聲的路。
+ * 輸出影片優先走 videoCompose 的離線合成（WebCodecs，比即時快、原聲直接搬移）。
+ * 這裡的 canvas.captureStream + MediaRecorder 是**即時**錄製 —— 影片多長就要錄多久，
+ * 留給不支援 WebCodecs 的裝置當退路。
  */
 
 /**
@@ -76,6 +76,7 @@ export class VideoCard {
   private audioDest: MediaStreamAudioDestinationNode | null = null;
 
   private recorder: MediaRecorder | null = null;
+  private url = "";
   private recordLimit = 0;
 
   constructor(
@@ -115,6 +116,7 @@ export class VideoCard {
     video.loop = true;
     video.preload = "auto";
     this.video = video;
+    this.url = url;
 
     return new Promise((resolve, reject) => {
       video.addEventListener(
@@ -142,6 +144,31 @@ export class VideoCard {
       video.addEventListener("pause", () => this.stopLoop());
       video.src = url;
     });
+  }
+
+  /**
+   * 離線合成需要的素材：卡片底圖、影片那一格的位置、影片網址。
+   * 回傳的底圖是複本，合成途中卡片被重畫也不會影響輸出。
+   */
+  snapshot(): { base: HTMLCanvasElement; slot: MediaSlot; url: string } | null {
+    if (!this.active || !this.slot) return null;
+    const base = document.createElement("canvas");
+    base.width = this.base.width;
+    base.height = this.base.height;
+    base.getContext("2d")?.drawImage(this.base, 0, 0);
+    return { base, slot: { ...this.slot }, url: this.url };
+  }
+
+  /**
+   * 離線合成期間暫停預覽：手機的硬體解碼器數量有限，預覽一邊播、合成一邊解，
+   * 兩邊搶資源會讓合成變慢，舊一點的 iPhone 甚至可能直接失敗。
+   */
+  pausePreview(): void {
+    this.video?.pause();
+  }
+
+  resumePreview(): void {
+    if (this.video && !this.recorder) void this.video.play().catch(() => {});
   }
 
   /** 拿掉目前的影片（換下一則貼文、改貼文字時）。 */
