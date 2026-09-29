@@ -134,6 +134,18 @@ function refusedByThreads(url) {
   }
 }
 
+/**
+ * Threads 把貼文限定給「特定受眾」看時，未登入的訪客拿到的是一頁錯誤頁：
+ * 「This content isn't available to everyone — It can't be seen by certain audiences.」
+ *
+ * 它跟 `?error=invalid_post` 不同：網址不會被轉走，頁面照樣 200，只是裡面沒有貼文，
+ * 路由換成 BarcelonaGeoBlockRoute。沒認出來的話會落到「讀不出貼文內容」，
+ * 使用者就以為是 Threads 改版、服務壞了。重試也沒用，所以認出來就不再重抓。
+ */
+function restrictedToAudience(html) {
+  return html.includes("BarcelonaGeoBlockedErrorRoot") || html.includes('"geoBlockPage"');
+}
+
 /** 一頁裡最多收這麼多個 post 物件就停手，避免長討論串拖慢回應。 */
 const MAX_SCAN = 60;
 
@@ -414,6 +426,7 @@ async function handlePost(target, cors) {
   let finalUrl = parsed.toString();
   let lastStatus = 0;
   let refused = false;
+  let restricted = false;
   // 只有「這次抓失敗」才需要退避等待。為了補讚數而多抓的那次沒有失敗，
   // 讓它也等 600ms 是白白拖慢每一則新結構的貼文。
   let backoff = 0;
@@ -474,6 +487,12 @@ async function handlePost(target, cors) {
       continue;
     }
 
+    // 先認受眾限制：不管最終網址長什麼樣子，這一頁都不會有貼文，重抓也一樣。
+    if (html !== undefined && restrictedToAudience(html)) {
+      restricted = true;
+      break;
+    }
+
     // 短碼要取自轉址後的最終網址 —— /share/CODE 的 CODE 不是貼文短碼。
     const wantedCode = codeFromUrl(upstream.url);
     if (!wantedCode) continue;
@@ -526,6 +545,19 @@ async function handlePost(target, cors) {
           message: "Threads 這次沒有回應（試了 3 次）。通常是暫時限流，稍等一下再按一次就好。",
         },
         502,
+        cors,
+      );
+    }
+    if (restricted) {
+      return json(
+        {
+          error: "post_restricted",
+          message:
+            "這則貼文被設為「不是所有人都看得到」，Threads 只給特定受眾看，未登入讀不到，" +
+            "因此無法自動帶入卡片（你自己登入的 Threads 看得到，但這裡是以未登入身分讀取）。" +
+            "請改成直接複製整則貼文的文字貼上來。",
+        },
+        404,
         cors,
       );
     }
