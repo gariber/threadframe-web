@@ -1292,7 +1292,7 @@ function dropRecordedVideo(): void {
   shareVideoBtn.hidden = true;
 }
 
-/** 這台裝置能離線合成（快，不必把影片播一遍）。不行才用即時錄製。 */
+/** 這台裝置能離線合成（快，不必把影片播一遍）。不行（含 iPhone、Safari）就用即時錄製。 */
 const canCompose = canComposeOffline();
 
 /** 離線合成中；按鈕再按一次會用它取消。 */
@@ -1391,7 +1391,8 @@ async function composeVideo(): Promise<void> {
       setVideoHint("已停止。");
     } else if (e instanceof ComposeError && e.kind === "fallback" && canRecord) {
       useRealtime = true;
-      setVideoHint(`${e.message} 按「改用即時錄製」，改成把影片播一遍錄下來。`);
+      const detail = e.detail ? `（技術細節：${e.detail}）` : "";
+      setVideoHint(`${e.message} 按「改用即時錄製」，改成把影片播一遍錄下來。${detail}`);
     } else {
       setVideoHint(e instanceof Error ? e.message : "製作失敗，請再試一次。");
     }

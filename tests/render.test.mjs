@@ -714,10 +714,14 @@ function magentaPixels(page) {
  * 影片卡片的完整流程：帶入 → 影片畫進媒體格 → 產生影片 → 下載 → 解碼檢查。
  * `realtime` 為 true 時把 WebCodecs 拿掉，逼 app 走即時錄製那條退路。
  */
-async function runVideoCardFlow({ realtime }) {
+async function runVideoCardFlow({ realtime, userAgent }) {
   fakeVideo = await makeTestVideo();
-  const page = await browser.newPage({ viewport: { width: 900, height: 1400 }, acceptDownloads: true });
-  if (realtime) {
+  const page = await browser.newPage({
+    viewport: { width: 900, height: 1400 },
+    acceptDownloads: true,
+    ...(userAgent ? { userAgent } : {}),
+  });
+  if (realtime && !userAgent) {
     await page.addInitScript(() => {
       delete window.VideoEncoder;
       delete window.VideoDecoder;
@@ -816,3 +820,11 @@ async function runVideoCardFlow({ realtime }) {
 test("影片貼文：離線合成，影片畫進卡片、輸出可解碼", () => runVideoCardFlow({ realtime: false }));
 
 test("影片貼文：不支援 WebCodecs 時退回即時錄製", () => runVideoCardFlow({ realtime: true }));
+
+// iPhone 雖然有 WebCodecs，離線合成用起來不順，直接走即時錄製。
+test("影片貼文：iPhone 直接用即時錄製", () =>
+  runVideoCardFlow({
+    realtime: true,
+    userAgent:
+      "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+  }));
