@@ -10,7 +10,17 @@ export type Ratio = "portrait" | "tall" | "square" | "auto";
  */
 export type TimeFormat = "absolute" | "relative";
 
+/** 卡片上最多畫幾則留言 —— 再多卡片就長到一個畫面放不下。 */
 export const MAX_COMMENTS = 4;
+
+/**
+ * 留言清單最多留幾則。
+ *
+ * 跟 MAX_COMMENTS 是兩回事：清單是素材，卡片才是成品。自動帶入會把讚數前
+ * 幾名的留言全部備好讓人挑，以前清單上限跟卡片一樣是 4 —— 一帶入就滿了，
+ * 「手動新增一則」直接變成灰的，想補一句自己的話只能先刪掉一則別人的。
+ */
+export const MAX_COMMENT_ROWS = 10;
 
 export type Comment = {
   name: string;
@@ -37,7 +47,8 @@ export type Comment = {
    * 要不要畫進卡片。
    *
    * 以前是「展示前 N 則」，想放第 3 則卻不要第 2 則就做不到；現在每則各自勾選。
-   * 手動新增與貼連結帶入的一律預設勾選 —— 特地加進來的，當然是要放上去。
+   * 手動新增與貼連結帶入的預設勾起來 —— 特地加進來的，當然是要放上去 ——
+   * 但卡片畫得下的只有 MAX_COMMENTS 則，已經勾滿時就不會再自動勾上。
    */
   picked: boolean;
 };

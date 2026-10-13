@@ -18,6 +18,7 @@ import {
   formatRelativeTime,
   formatTime,
   proxyImage,
+  type FetchedComment,
   type FetchedPost,
 } from "./fetchPost";
 import { parsePastedPost, parseThreadsUrl } from "./parse";
@@ -29,6 +30,7 @@ import {
   emptyComment,
   emptyPost,
   loadStyle,
+  MAX_COMMENT_ROWS,
   MAX_COMMENTS,
   saveStyle,
   type Comment,
@@ -212,9 +214,49 @@ function formatPostTime(): string {
     : formatTime(post.takenAt);
 }
 
+/**
+ * 卡片主體要用的欄位。父貼文回來的就是這一組（少了 comments），
+ * 填起來跟主貼文走同一段程式。
+ */
+type FetchedBody = Omit<FetchedPost, "comments" | "parent">;
+
+/** 把一則取回來的貼文當成一則留言看待 —— 貼留言連結時要這樣擺。 */
+function asComment(data: FetchedBody): FetchedComment {
+  return {
+    username: data.username,
+    name: data.name,
+    avatar: data.avatar,
+    text: data.text,
+    likes: data.likes,
+    replies: data.replies,
+    reposts: data.reposts,
+    shares: data.shares,
+    takenAt: data.takenAt,
+    // 留言在卡片上只畫一張附圖，跟 Worker 對留言的處理一致。
+    image: data.images[0] ?? null,
+  };
+}
+
+/**
+ * 帶入一則貼文。
+ *
+ * 貼進來的是一則**留言**時（Worker 會連它回的那一篇一起送回來），卡片主體
+ * 換成那一篇原貼文，留言區只放這則留言本身 —— 使用者貼一條連結，拿到的就是
+ * 「原貼文＋這則留言」。顛倒過來（留言當主角、原貼文當留言）沒有人想要。
+ */
 function fillFromFetched(data: FetchedPost): void {
   const generation = ++fetchGeneration;
 
+  if (data.parent) {
+    fillPostFrom(data.parent, generation);
+    setCommentsFrom([asComment(data)], generation, true);
+  } else {
+    fillPostFrom(data, generation);
+    setCommentsFrom(data.comments ?? [], generation, false);
+  }
+}
+
+function fillPostFrom(data: FetchedBody, generation: number): void {
   // 上一則的影片一定要先拿掉，不然新卡片的第一格會播著上一則的影片。
   videoCard.clear();
   if (data.video?.url) {
@@ -248,29 +290,6 @@ function fillFromFetched(data: FetchedPost): void {
   post.shares = formatCount(data.shares);
   post.url = data.url;
 
-  // 只留有內文的留言：Worker 會把貼圖或純圖片的回覆也算進來，
-  // 那些在卡片上只會是一個空白列。展示幾則是使用者的選擇（style.commentLimit），
-  // 這裡只負責把素材備齊。
-  //
-  // Worker 已經依讚數排好序了，這裡不再重排 —— 它看得到整串，我們只收到前幾則。
-  const fetched = (data.comments ?? []).filter((c) => c.text.trim()).slice(0, MAX_COMMENTS);
-  post.comments = fetched.map((c, index) => ({
-    // 預設勾幾則沿用使用者上一次的習慣；之後每則都能自己勾掉或勾回來。
-    picked: index < style.commentLimit,
-    name: c.name || c.username,
-    handle: c.username,
-    text: c.text,
-    time: formatRelativeTime(c.takenAt),
-    likes: formatCount(c.likes),
-    replies: formatCount(c.replies ?? null),
-    reposts: formatCount(c.reposts ?? null),
-    shares: formatCount(c.shares ?? null),
-    avatar: null,
-  }));
-  // 圖片稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
-  assets.commentAvatars = post.comments.map(() => null);
-  assets.commentImages = post.comments.map(() => null);
-
   paintComments();
   draw();
 
@@ -302,7 +321,48 @@ function fillFromFetched(data: FetchedPost): void {
         })
       : Promise.resolve();
 
-  const commentJobs = fetched.flatMap((c, index) => [
+  // 取文是否完成只看主貼文資料；頭像與圖片都是可選的裝飾素材。
+  // 若其中一個 CDN／代理請求一直 pending，不能連帶把「讀取貼文中」與按鈕
+  // 永久鎖住。圖片仍會在背景逐張補上，allSettled 也會吸收繪製階段的失敗。
+  void Promise.allSettled([avatarJob, imagesJob]);
+}
+
+/**
+ * 用取回來的留言換掉整份留言清單。
+ *
+ * `fromLink` 是「使用者自己貼連結指定的那一則」：一定畫進卡片、一定帶那條
+ * 從貼文連到留言的細線，也不因為沒有內文（純圖片的回覆）就被濾掉 ——
+ * 特地貼了連結卻什麼都沒出現，看起來就是壞掉。
+ */
+function setCommentsFrom(list: FetchedComment[], generation: number, fromLink: boolean): void {
+  // 只留有內文的留言：Worker 會把貼圖或純圖片的回覆也算進來，
+  // 那些在卡片上只會是一個空白列。勾幾則是使用者的選擇（style.commentLimit），
+  // 這裡只負責把素材備齊 —— 清單可以比卡片畫得下的多，多的留著讓人挑。
+  //
+  // Worker 已經依讚數排好序了，這裡不再重排 —— 它看得到整串，我們只收到前幾則。
+  const fetched = (fromLink ? list : list.filter((c) => c.text.trim())).slice(0, MAX_COMMENT_ROWS);
+  post.comments = fetched.map((c, index) => ({
+    // 預設勾幾則沿用使用者上一次的習慣；之後每則都能自己勾掉或勾回來。
+    picked: fromLink || index < Math.min(style.commentLimit, MAX_COMMENTS),
+    fromLink,
+    name: c.name || c.username,
+    handle: c.username,
+    text: c.text,
+    time: formatRelativeTime(c.takenAt),
+    likes: formatCount(c.likes),
+    replies: formatCount(c.replies ?? null),
+    reposts: formatCount(c.reposts ?? null),
+    shares: formatCount(c.shares ?? null),
+    avatar: null,
+  }));
+  // 圖片稍後才會載進來，先把長度對齊，否則索引會錯位到別人的留言上。
+  assets.commentAvatars = post.comments.map(() => null);
+  assets.commentImages = post.comments.map(() => null);
+
+  paintComments();
+  draw();
+
+  const jobs = fetched.flatMap((c, index) => [
     c.avatar
       ? urlToImage(proxyImage(c.avatar))
           .then((img) => {
@@ -311,7 +371,7 @@ function fillFromFetched(data: FetchedPost): void {
             draw();
           })
           .catch(() => {
-            // 同上：載不到就用名稱首字的圓形底。
+            // 載不到就用名稱首字的圓形底。
           })
       : Promise.resolve(),
     c.image
@@ -327,10 +387,7 @@ function fillFromFetched(data: FetchedPost): void {
       : Promise.resolve(),
   ]);
 
-  // 取文是否完成只看主貼文資料；頭像與圖片都是可選的裝飾素材。
-  // 若其中一個 CDN／代理請求一直 pending，不能連帶把「讀取貼文中」與按鈕
-  // 永久鎖住。圖片仍會在背景逐張補上，allSettled 也會吸收繪製階段的失敗。
-  void Promise.allSettled([avatarJob, imagesJob, ...commentJobs]);
+  void Promise.allSettled(jobs);
 }
 
 async function autoFill(url: string): Promise<void> {
@@ -593,6 +650,30 @@ function labelled(text: string, control: HTMLElement, stack = false): HTMLLabelE
   return label;
 }
 
+/** 目前勾了幾則 —— 卡片畫得出來的上限是 MAX_COMMENTS。 */
+function pickedCount(): number {
+  return post.comments.filter((c) => c.picked).length;
+}
+
+/**
+ * 勾起這一則，位置不夠就讓一則出來。
+ *
+ * 卡片只畫得下 MAX_COMMENTS 則，多出來的 render 會默默砍掉。使用者特地貼
+ * 連結指定的那一則若排在後面就會整個不見 —— 與其讓它消失，不如把最後一則
+ * 自動帶入的取消掉；清單上那個被取消的勾就在眼前，看得出發生了什麼事。
+ */
+function pickWithRoom(target: Comment): void {
+  if (target.picked) return;
+
+  const picked = post.comments.filter((c) => c.picked);
+  if (picked.length >= MAX_COMMENTS) {
+    // 自動帶入的先讓位；整排都是指定的才動最後一則。
+    const giveUp = [...picked].reverse().find((c) => !c.fromLink) ?? picked[picked.length - 1];
+    giveUp.picked = false;
+  }
+  target.picked = true;
+}
+
 /**
  * 用一則留言的連結填滿指定的留言欄位。
  *
@@ -618,7 +699,21 @@ async function fillCommentFrom(url: string, index: number): Promise<void> {
   comment.shares = formatCount(data.shares);
 
   // 特地貼連結指定的留言一定要畫出來，帶入了卻看不到，使用者會以為沒成功。
-  comment.picked = true;
+  pickWithRoom(comment);
+
+  /*
+   * 卡片還空著的時候，順手把這則留言回的那一篇填成卡片主體。
+   *
+   * 貼一則留言的連結，想做的幾乎一定是「原貼文＋這則留言」。以前留言頁上
+   * 讀不到原貼文，只能請使用者自己回 Threads 複製原貼文的連結再貼一次；
+   * 現在 Worker 連父貼文一起送回來了，這一步可以省掉。
+   *
+   * 卡片上已經有貼文時絕不覆蓋 —— 那是使用者特地先貼好的原貼文，
+   * 而且他要的也可能是別串的留言。
+   */
+  if (data.parent && !post.text.trim() && !post.name.trim()) {
+    fillPostFrom(data.parent, ++fetchGeneration);
+  }
 
   // 圖片慢，先讓文字出現；載到了再補畫一次。
   if (data.avatar) {
@@ -669,10 +764,18 @@ function paintComments(): void {
     box.type = "checkbox";
     box.checked = comment.picked;
     box.addEventListener("change", () => {
+      // 勾第五則時 render 只會畫前四則，被砍掉的那則沒有任何提示 ——
+      // 使用者只看得到「勾了卻沒出現」。在這裡擋下來並說清楚。
+      if (box.checked && pickedCount() >= MAX_COMMENTS) {
+        box.checked = false;
+        $("comment-hint").textContent = `卡片最多畫 ${MAX_COMMENTS} 則留言，想換的話先取消一則。`;
+        return;
+      }
       comment.picked = box.checked;
       // 記住這次勾了幾則，下一則貼文帶入時照同樣的數量預先勾好。
-      style.commentLimit = post.comments.filter((c) => c.picked).length;
+      style.commentLimit = pickedCount();
       commit();
+      $("comment-hint").textContent = commentHint();
     });
     const summary = document.createElement("span");
     summary.className = "comment-summary";
@@ -840,21 +943,39 @@ function paintComments(): void {
     commentList.append(row);
   });
 
-  addComment.disabled = post.comments.length >= MAX_COMMENTS;
-  $("comment-hint").textContent =
-    post.comments.length === 0
-      ? "帶入貼文後，底下讚數最高的留言會列在這裡，勾起來就會放進卡片。"
-      : `勾起來的會依序放進卡片，最多 ${MAX_COMMENTS} 則。`;
+  // 清單滿了才停手。以前這裡比的是 MAX_COMMENTS，於是自動帶入四則之後
+  // 「手動新增一則」就是灰的 —— 想補一句自己的話，得先刪掉別人的。
+  addComment.disabled = post.comments.length >= MAX_COMMENT_ROWS;
+  $("comment-hint").textContent = commentHint();
+}
+
+function commentHint(): string {
+  if (post.comments.length === 0) {
+    return "帶入貼文後，底下讚數最高的留言會列在這裡，勾起來就會放進卡片。";
+  }
+  if (post.comments.length >= MAX_COMMENT_ROWS) {
+    return `清單已經有 ${MAX_COMMENT_ROWS} 則，想再加要先刪掉一則。卡片上最多畫 ${MAX_COMMENTS} 則。`;
+  }
+  return `勾起來的會依序放進卡片，最多 ${MAX_COMMENTS} 則。`;
 }
 
 addComment.addEventListener("click", () => {
-  if (post.comments.length >= MAX_COMMENTS) return;
+  if (post.comments.length >= MAX_COMMENT_ROWS) return;
+
   const fresh = emptyComment();
+  // 勾滿了就先不勾這則 —— 預設勾起來的話，等使用者打完字才發現它根本
+  // 沒畫出去（render 只取前 MAX_COMMENTS 則），還找不到原因。
+  const full = pickedCount() >= MAX_COMMENTS;
+  fresh.picked = !full;
+
   editingComments.add(fresh);
   post.comments.push(fresh);
   assets.commentAvatars.push(null);
   assets.commentImages.push(null);
   paintComments();
+  if (full) {
+    $("comment-hint").textContent = `卡片已經勾滿 ${MAX_COMMENTS} 則，這一則要先取消一則才放得上去。`;
+  }
   draw();
 });
 
