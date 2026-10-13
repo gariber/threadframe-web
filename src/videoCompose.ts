@@ -14,7 +14,7 @@ import {
   WEBM,
 } from "mediabunny";
 import { paintMediaFrame, type MediaSlot } from "./render";
-import { ComposeError } from "./videoComposeLite";
+import { ComposeError, describeError } from "./videoComposeLite";
 
 /**
  * 影片卡片的離線合成：不必把影片播一遍，而是一格一格解碼、疊進卡片、再用硬體編碼器壓成 MP4。
@@ -86,8 +86,8 @@ export async function composeVideoCard(input: ComposeInput): Promise<ComposeResu
   let duration: number;
   try {
     duration = await source.computeDuration();
-  } catch {
-    throw new ComposeError("影片讀取失敗。", "fallback");
+  } catch (e) {
+    throw new ComposeError("影片讀取失敗。", "fallback", describeError(e));
   }
   const end = Math.min(duration, input.maxSeconds);
 
@@ -139,7 +139,7 @@ export async function composeVideoCard(input: ComposeInput): Promise<ComposeResu
   } catch (e) {
     if (e instanceof ConversionCanceledError) throw new ComposeError("已停止。", "canceled");
     // 編碼器中途失敗（多半是記憶體不夠）時改走即時錄製，至少還做得出來。
-    throw new ComposeError("合成時發生錯誤。", "fallback");
+    throw new ComposeError("合成時發生錯誤。", "fallback", describeError(e));
   } finally {
     input.signal.removeEventListener("abort", abort);
   }
