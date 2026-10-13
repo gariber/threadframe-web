@@ -236,24 +236,82 @@ function scanPosts(html) {
   return posts;
 }
 
+/** 貼文的 text_post_app_info；缺了就給一個空物件，省去每處都判斷。 */
+function infoOf(post) {
+  return post?.text_post_app_info ?? {};
+}
+
 /**
- * 把掃到的貼文切成「主體」與「它的留言」。
+ * 這則是不是回覆（留言），以及它回的是誰。
+ *
+ * 2026-10 實測，內嵌資料已經帶著 `is_reply`、`reply_to_author`（回的那一篇的
+ * 作者）與 `root_post_author`（整串最上面那篇的作者）。先前這三個欄位都是
+ * null，所以當時只能靠順序猜；現在認得出來，貼一條留言連結就能把它回的
+ * 那篇一起找出來。
+ *
+ * 只認 `=== true` / `=== false`：欄位不存在時（舊的頁面結構）要當成不知道，
+ * 不能當成「不是回覆」。
+ */
+function isReply(post) {
+  return infoOf(post).is_reply === true;
+}
+
+function repliedAuthor(post) {
+  const info = infoOf(post);
+  return info.reply_to_author?.username ?? info.root_post_author?.username ?? null;
+}
+
+/**
+ * 找出這則留言回的那一篇 —— 它就嵌在同一頁上。
+ *
+ * 留言頁嵌進來的順序是 [這則留言, 原貼文, …]（實測多則留言都是如此），
+ * 所以父貼文不在 main 後面，整頁都要找。認作者不認位置：`reply_to_author`
+ * 指名它回的是誰，取同一頁上那位作者發的、時間不晚於這則留言的那一篇。
+ * 作者在自己的串裡連續發文時會有好幾篇符合，取時間最接近的那一篇。
+ */
+function findParent(posts, at) {
+  const main = posts[at];
+  const wanted = repliedAuthor(main);
+  if (!wanted) return null;
+
+  const mine = main.taken_at ?? Infinity;
+  const candidates = posts.filter(
+    (p, i) => i !== at && p.user?.username === wanted && (p.taken_at ?? 0) <= mine,
+  );
+  if (candidates.length === 0) return null;
+
+  return candidates.sort((a, b) => (b.taken_at ?? 0) - (a.taken_at ?? 0))[0];
+}
+
+/**
+ * 把掃到的貼文切成「主體」「它回的那一篇」與「它的留言」。
  *
  * 頁面會把整串討論都嵌進來，而且**主貼文永遠排在最前面、留言排在後面**。
  * 因此不能直接取第一個 —— 貼留言的連結時會拿到原 PO 的文。
  * 必須比對網址裡的短碼；沒有短碼或找不到時都視為失敗。Threads 可能把
  * 無效短鏈轉回首頁，而首頁同樣內嵌推薦貼文，退回第一個就會靜靜地帶錯文。
  *
- * 留言只能靠順序判斷：物件本身沒有 parent / reply 之類的欄位可用，
- * 排在主體後面的就是它的留言。
+ * 留言仍然靠順序判斷：排在主體後面的就是它的留言。但留言頁上排在後面的
+ * 還有**祖先**（原貼文就嵌在那則留言的後面），那些不是它的留言 ——
+ * 不剔掉的話，貼一條留言連結會做出「留言當主角、原貼文當留言」的顛倒卡片。
  */
 function splitThread(posts, wantedCode) {
-  if (!wantedCode || posts.length === 0) return { main: null, comments: [], exact: false };
+  const none = { main: null, parent: null, comments: [], exact: false };
+  if (!wantedCode || posts.length === 0) return none;
 
   const at = posts.findIndex((p) => p.code === wantedCode);
-  if (at === -1) return { main: null, comments: [], exact: false };
+  if (at === -1) return none;
 
-  return { main: posts[at], comments: posts.slice(at + 1), exact: true };
+  const main = posts[at];
+  const parent = isReply(main) ? findParent(posts, at) : null;
+
+  const comments = posts
+    .slice(at + 1)
+    // `is_reply !== false` 而不是 `isReply(p)`：舊的頁面結構沒有這個欄位，
+    // 那時仍然只能靠順序，不能把整串留言都當成祖先丟掉。
+    .filter((p) => p !== parent && infoOf(p).is_reply !== false);
+
+  return { main, parent, comments, exact: true };
 }
 
 /** 留言只留下畫進卡片會用到的欄位。 */
@@ -405,6 +463,40 @@ function topicName(post) {
   return trimmed || null;
 }
 
+/** 貼文自己的固定網址；少了作者或短碼就拼不出來。 */
+function permalink(post) {
+  const username = post?.user?.username;
+  return username && post?.code ? `https://www.threads.com/@${username}/post/${post.code}` : null;
+}
+
+/**
+ * 一則貼文在回應裡長什麼樣子。主貼文與它的父貼文共用同一組欄位 ——
+ * 前端拿父貼文去填卡片時，走的是跟主貼文完全一樣的那段程式。
+ */
+function toPost(post, url) {
+  const info = infoOf(post);
+
+  return {
+    url,
+    username: post.user?.username ?? "",
+    name: post.user?.full_name || post.user?.username || "",
+    topic: topicName(post),
+    verified: Boolean(post.user?.is_verified),
+    avatar: post.user?.profile_pic_url ?? null,
+    text: post.caption?.text ?? "",
+    takenAt: post.taken_at ?? null,
+    likes: post.like_count ?? null,
+    replies: info.direct_reply_count ?? post.reply_count ?? null,
+    reposts: info.repost_count ?? null,
+    shares: info.reshare_count ?? null,
+    images: collectImages(post),
+    video: pickVideo(post),
+    mediaCount: mediaCount(post),
+    /** 這則本身是不是回覆。前端據此決定要不要改用父貼文當卡片主體。 */
+    isReply: isReply(post),
+  };
+}
+
 async function handlePost(target, cors) {
   let parsed;
   try {
@@ -423,6 +515,7 @@ async function handlePost(target, cors) {
   // 直接接受會把推薦貼文靜靜地填進卡片。
   let exact = null;
   let exactComments = [];
+  let exactParent = null;
   let finalUrl = parsed.toString();
   let lastStatus = 0;
   let refused = false;
@@ -513,6 +606,7 @@ async function handlePost(target, cors) {
       if (!exact || (better && typeof exact.like_count !== "number")) {
         exact = found.main;
         exactComments = found.comments;
+        exactParent = found.parent;
         finalUrl = upstream.url;
       }
 
@@ -526,6 +620,7 @@ async function handlePost(target, cors) {
 
   const post = exact;
   const comments = exactComments;
+  const parent = exactParent;
   if (!post) {
     if (threw && !lastStatus) {
       return json(
@@ -595,25 +690,18 @@ async function handlePost(target, cors) {
     );
   }
 
-  const info = post.text_post_app_info ?? {};
   return json(
     {
-      url: finalUrl.split("?")[0],
-      username: post.user?.username ?? "",
-      name: post.user?.full_name || post.user?.username || "",
-      topic: topicName(post),
-      verified: Boolean(post.user?.is_verified),
-      avatar: post.user?.profile_pic_url ?? null,
-      text: post.caption?.text ?? "",
-      takenAt: post.taken_at ?? null,
-      likes: post.like_count ?? null,
-      replies: info.direct_reply_count ?? post.reply_count ?? null,
-      reposts: info.repost_count ?? null,
-      shares: info.reshare_count ?? null,
-      images: collectImages(post),
-      video: pickVideo(post),
-      mediaCount: mediaCount(post),
+      ...toPost(post, finalUrl.split("?")[0]),
       comments: topComments(comments),
+      /*
+       * 貼進來的是一則留言時，把它回的那一篇一起送回去。
+       *
+       * 留言頁上沒有原貼文的時代已經過去（現在整串都嵌在同一頁），前端因此
+       * 能直接做出「原貼文＋這則留言」的卡片 —— 使用者貼一條連結就好，
+       * 不必先回 Threads 找原貼文的連結再貼一次。
+       */
+      parent: parent ? toPost(parent, permalink(parent)) : null,
     },
     200,
     cors,

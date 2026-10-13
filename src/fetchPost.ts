@@ -40,6 +40,15 @@ export type FetchedPost = {
   mediaCount?: number;
   /** 選用：舊版 Worker 不會回這個欄位，呼叫端要能接受它不存在。 */
   comments?: FetchedComment[];
+  /** 選用：這則本身是不是回覆（留言）。舊版 Worker 不會回傳。 */
+  isReply?: boolean;
+  /**
+   * 選用：貼進來的是一則留言時，它回的那一篇。
+   *
+   * 欄位與主貼文完全相同（只少了 comments），所以填卡片時走的是同一段程式。
+   * 不是留言、或那一頁上找不到它回的那篇時為 null；舊版 Worker 不會回傳。
+   */
+  parent?: Omit<FetchedPost, "comments" | "parent"> | null;
 };
 
 export class FetchPostError extends Error {

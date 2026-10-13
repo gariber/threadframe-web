@@ -16,6 +16,31 @@ function post(code, username, text = username, topic = null) {
   };
 }
 
+/**
+ * 一則回覆。`replyTo` 是它回的那位作者、`root` 是整串最上面那篇的作者 ——
+ * 直接回原貼文時兩者相同，回別人的留言時才會分岔。
+ *
+ * taken_at 預設比 post() 的 1 晚，父貼文才會落在「時間不晚於這則」那一側。
+ */
+function reply(code, username, text, replyTo, root = replyTo, takenAt = 2) {
+  const item = post(code, username, text);
+  item.taken_at = takenAt;
+  Object.assign(item.text_post_app_info, {
+    is_reply: true,
+    reply_to_author: { username: replyTo },
+    root_post_author: { username: root },
+  });
+  return item;
+}
+
+/** 一則不是回覆的貼文 —— 留言頁上的祖先都是這樣標的。 */
+function rootPost(code, username, text, takenAt = 1) {
+  const item = post(code, username, text);
+  item.taken_at = takenAt;
+  item.text_post_app_info.is_reply = false;
+  return item;
+}
+
 function page(posts) {
   return posts.map((item) => `<script>{"post":${JSON.stringify(item)}}</script>`).join("");
 }
@@ -377,4 +402,101 @@ test("限定特定受眾的貼文：明確回報原因，而且不重抓", async
   assert.match(result.body.message, /特定受眾/);
   // 重抓也是同一頁，不該讓使用者多等兩趟。
   assert.equal(result.calls, 1);
+});
+
+test("貼留言連結：帶回它回的那一篇，而且原貼文不會被當成留言", async () => {
+  // 留言頁嵌進來的順序就是這樣：這則留言在前，它回的那篇排在後面。
+  const target = "https://www.threads.com/@chris/post/ReplyCode";
+  const result = await fetchPost(target, [
+    upstream(target, [
+      reply("ReplyCode", "chris", "說得好", "zuck"),
+      rootPost("RootCode", "zuck", "原貼文內容"),
+    ]),
+  ]);
+
+  assert.equal(result.response.status, 200);
+  assert.equal(result.body.username, "chris");
+  assert.equal(result.body.isReply, true);
+  assert.equal(result.body.parent?.username, "zuck");
+  assert.equal(result.body.parent?.text, "原貼文內容");
+  assert.equal(result.body.parent?.url, "https://www.threads.com/@zuck/post/RootCode");
+  assert.equal(result.body.parent?.isReply, false);
+  // 顛倒的卡片就是從這裡來的：原貼文一旦混進留言，卡片會變成
+  // 「留言當主角、原貼文當留言」。
+  assert.deepEqual(result.body.comments, []);
+});
+
+test("回覆底下自己的留言仍然算它的留言", async () => {
+  const target = "https://www.threads.com/@jd/post/ReplyCode";
+  const result = await fetchPost(target, [
+    upstream(target, [
+      reply("ReplyCode", "jd", "我也這麼覺得", "zuck"),
+      rootPost("RootCode", "zuck", "原貼文內容"),
+      reply("SubCode", "bloom", "同感", "jd", "zuck", 3),
+    ]),
+  ]);
+
+  assert.equal(result.body.parent?.username, "zuck");
+  assert.deepEqual(
+    result.body.comments.map((c) => c.username),
+    ["bloom"],
+  );
+});
+
+test("巢狀留言取的是它直接回的那一篇，不是整串最上面那篇", async () => {
+  const target = "https://www.threads.com/@bloom/post/NestedCode";
+  const result = await fetchPost(target, [
+    upstream(target, [
+      reply("NestedCode", "bloom", "同感", "jd", "zuck", 3),
+      rootPost("RootCode", "zuck", "原貼文內容"),
+      reply("MiddleCode", "jd", "我也這麼覺得", "zuck", "zuck", 2),
+    ]),
+  ]);
+
+  assert.equal(result.body.parent?.username, "jd");
+  assert.equal(result.body.parent?.text, "我也這麼覺得");
+});
+
+test("同一位作者連續發文時，父貼文取時間最接近的那一篇", async () => {
+  const target = "https://www.threads.com/@chris/post/ReplyCode";
+  const result = await fetchPost(target, [
+    upstream(target, [
+      reply("ReplyCode", "chris", "說得好", "zuck", "zuck", 10),
+      rootPost("OldCode", "zuck", "上一篇", 1),
+      rootPost("NewCode", "zuck", "它回的那篇", 9),
+      rootPost("LaterCode", "zuck", "之後才發的", 20),
+    ]),
+  ]);
+
+  assert.equal(result.body.parent?.text, "它回的那篇");
+});
+
+test("主貼文頁不受影響：沒有 parent，留言照舊", async () => {
+  const target = "https://www.threads.com/@zuck/post/RootCode";
+  const result = await fetchPost(target, [
+    upstream(target, [
+      rootPost("RootCode", "zuck", "原貼文內容"),
+      reply("ReplyCode", "chris", "說得好", "zuck"),
+    ]),
+  ]);
+
+  assert.equal(result.body.isReply, false);
+  assert.equal(result.body.parent, null);
+  assert.deepEqual(
+    result.body.comments.map((c) => c.username),
+    ["chris"],
+  );
+});
+
+test("舊的頁面結構沒有 is_reply 時，仍然照順序把後面的當成留言", async () => {
+  const target = "https://www.threads.com/@target/post/MainCode";
+  const result = await fetchPost(target, [
+    upstream(target, [post("MainCode", "target", "正文"), post("C1", "someone", "留言")]),
+  ]);
+
+  assert.equal(result.body.parent, null);
+  assert.deepEqual(
+    result.body.comments.map((c) => c.username),
+    ["someone"],
+  );
 });

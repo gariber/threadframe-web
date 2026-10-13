@@ -65,6 +65,10 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
   "reposts": 12,              // number | null
   "shares": 18,               // number | null
   "images": ["https://…"],    // string[]，最多 4 張，原始網址（同樣需經 ?img= 代理）
+  "video": null,              // { url, width, height } | null，影片貼文才有；images[0] 是它的封面
+  "mediaCount": 1,            // number，原貼文實際有幾則媒體，可能大於 images.length
+  "isReply": false,           // boolean，這則本身是不是回覆（留言）
+  "parent": null,             // 同一組欄位（少了 comments）| null，見「貼留言的連結」
   "comments": [               // 最多 6 則，依讚數由高到低（見「留言的挑選」）
     {
       "username": "alice",    // string
@@ -85,8 +89,9 @@ Threads 的所有端點都不回 `Access-Control-Allow-Origin`，瀏覽器一律
 `topic` 取自目標貼文的 `text_post_app_info.tag_header.display_name`；沒有話題時為
 `null`。它不是從 caption 或 hashtag 猜出來的，因此不會把正文的一部分重複畫進標題。
 
-`comments` 是後加的欄位，**舊版部署不會回傳它**，呼叫端要能接受它不存在
-（前端的型別標成選用）。留言也不保證抓得到：拿到不含留言的頁面變體時會是空陣列。
+`comments`、`video`、`mediaCount`、`isReply`、`parent` 都是後加的欄位，
+**舊版部署不會回傳它們**，呼叫端要能接受它們不存在（前端的型別標成選用）。
+留言也不保證抓得到：拿到不含留言的頁面變體時會是空陣列。
 
 ### `GET /?img=<圖片網址>`
 
@@ -197,13 +202,34 @@ CORS 回應會回填實際的 `Origin` 而不是 `*`，並帶 `vary: Origin`。
 `JSON.parse`，收下同時具備 `user.username` 與 `caption` 的物件，維持頁面順序，
 以 `code` 去重（同一則會在討論串本體、預載資料、推薦區各嵌一份），最多 60 個。
 
-`splitThread`：**主貼文永遠排在最前面、留言排在後面**，而物件本身沒有
-`parent` / `reply` 之類的欄位可用 —— 順序是唯一的線索。因此比對網址短碼找出
-主體，排在它後面的全部視為它的留言；短碼對不上時退回第一個並回報
+`splitThread`：**主貼文永遠排在最前面、留言排在後面**，因此比對網址短碼找出
+主體，排在它後面的視為它的留言；短碼對不上時不退回第一個，而是回報
 `exact: false`，由外層決定要不要重試（見「重試」）。
 
-貼留言的連結時，主體是那則留言，`comments` 則是它後面的回覆 —— 不是原 PO
-底下的其他留言。
+### 貼留言的連結
+
+主體是那則留言，`comments` 是它底下的回覆（不是原 PO 底下的其他留言），
+而它回的那一篇放在 **`parent`** —— 欄位與主貼文完全相同，少了 `comments`。
+前端據此直接做出「原貼文＋這則留言」的卡片，使用者不必再回 Threads 把原貼文
+的連結複製一次。
+
+父貼文**就嵌在同一頁上**：留言頁的順序實測是 `[這則留言, 它回的那篇, …]`。
+認得出來靠的是 2026-10 起內嵌資料補上的三個欄位（先前都是 null，所以當時
+只能靠順序猜）：
+
+| 欄位 | 用途 |
+| --- | --- |
+| `text_post_app_info.is_reply` | 這則是不是回覆 |
+| `text_post_app_info.reply_to_author.username` | 它回的是哪位作者 |
+| `text_post_app_info.root_post_author.username` | 整串最上面那篇的作者 |
+
+`findParent` 認作者不認位置：取同一頁上 `reply_to_author` 那位作者發的、
+時間不晚於這則留言的那一篇；同一位作者有多篇符合時取時間最接近的。
+回的是別人的留言時，`parent` 是**它直接回的那一篇**，不是整串最上面那篇。
+
+同一組欄位也用來把祖先踢出 `comments`：留言頁上排在主體後面的還有原貼文，
+不剔掉的話，貼一條留言連結會做出「留言當主角、原貼文當留言」的顛倒卡片。
+只剔 `is_reply === false` 的 —— 欄位不存在的舊頁面結構仍然照順序判斷。
 
 ### 留言的挑選
 
@@ -269,9 +295,9 @@ Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)
   這類一律回 `404 post_unavailable`。
 - **依賴 Meta 的頁面結構**。Threads 改版時 `scanPosts` 會失效，回 `404 not_found`，
   前端提示改用手動貼上，不會整個壞掉。
-- **留言只能靠順序判斷**。內嵌的 post 物件沒有指回父貼文的欄位，只能用「排在主體
-  之後」當作留言。Threads 若改變區塊順序，帶出來的留言就可能不是那一則的；
-  前端的留言欄位一律可以改寫或刪除。
+- **留言仍然靠順序判斷**。`is_reply` 只分得出「是不是回覆」，分不出回的是哪一則，
+  所以「排在主體之後」依舊是收留言的依據。Threads 若改變區塊順序，帶出來的留言
+  就可能不是那一則的；前端的留言欄位一律可以改寫或刪除。
 - **留言不含巢狀回覆的層級**。回覆的回覆一樣攤平在同一串裡，看不出縮排關係。
 - **影片只取封面圖**。輪播中的影片項目會取 `image_versions2` 的封面，不取影片本身。
 - **不再是「資料完全不離開裝置」**。啟用後貼文連結會送到這支服務。
