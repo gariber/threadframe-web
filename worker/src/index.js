@@ -316,8 +316,10 @@ function splitThread(posts, wantedCode) {
 
 /** 留言只留下畫進卡片會用到的欄位。 */
 function toComment(post) {
-  // 留言的圖片在卡片上畫得比貼文小，540 就夠；只取第一張 ——
-  // 留言區要保持精簡，把整組輪播攤開會把卡片撐得很長。
+  // 只取第一張 —— 留言區要保持精簡，把整組輪播攤開會把卡片撐得很長。
+  //
+  // 尺寸跟貼文一樣要 1080：留言的圖現在畫到整個留言欄寬（跟 Threads 一樣），
+  // 540 那張放上去就是糊的，而留言的圖多半是截圖，糊了就等於沒帶。
   const first = Array.isArray(post.carousel_media) ? post.carousel_media[0] : post;
   const info = post.text_post_app_info ?? {};
 
@@ -332,7 +334,7 @@ function toComment(post) {
     reposts: info.repost_count ?? null,
     shares: info.reshare_count ?? null,
     takenAt: post.taken_at ?? null,
-    image: pickImage(first, CELL_WIDTH),
+    image: pickImage(first, FULL_WIDTH),
   };
 }
 

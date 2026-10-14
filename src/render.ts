@@ -172,6 +172,18 @@ function softInk(color: string, alpha: number): string {
   return hexToRgba(color, alpha);
 }
 
+/**
+ * 圖片在卡片上最高畫到寬度的幾倍，超過才開始縮小。
+ *
+ * 2.2 這個數字是**手機截圖**：19.5:9 的機身約 2.17。卡在這之下的話，每一張
+ * 手機截圖都會被整張縮成讀不到字的小圖 —— 而截圖正是最需要看清楚的那種圖
+ * （對話、公告、清單）。Threads 自己是整欄寬度照畫，這裡取同樣的做法，
+ * 只有比手機截圖更長的（長截圖、長圖文）才縮。
+ *
+ * 一律維持比例、不裁切：卡片是會被存下來的一張圖，看不到的部分救不回來。
+ */
+const MAX_IMAGE_ASPECT = 2.2;
+
 function drawContain(
   ctx: CanvasRenderingContext2D,
   img: HTMLImageElement,
@@ -620,7 +632,7 @@ function layout(
     if (images.length === 1) {
       // 單張維持原始比例，不裁切。
       const img = images[0];
-      height = Math.min((bodyW * img.naturalHeight) / img.naturalWidth, bodyW * 1.4);
+      height = Math.min((bodyW * img.naturalHeight) / img.naturalWidth, bodyW * MAX_IMAGE_ASPECT);
       cells = [{ x: 0, y: 0, w: bodyW, h: height }];
       single = true;
     } else {
@@ -914,9 +926,16 @@ function layout(
     const indent = linked ? bodyIndent : avatarX + avatarSize + Math.round(size * 0.4);
     const textW = contentW - indent;
 
-    // 留言的附圖不該搶走主體的版面 —— 壓在內容寬度的六成以內。
-    const imageMaxW = Math.round(textW * 0.72);
-    const imageMaxH = Math.round(size * 9);
+    /*
+     * 留言的附圖畫到整個留言欄寬，跟 Threads 一樣。
+     *
+     * 以前壓在七成寬、而且高度卡死在 size * 9（約內文九行）。附圖是截圖時
+     * 那個高度上限會先踩到：一張 1:2.2 的手機截圖被縮到只剩兩成寬，字糊成
+     * 一片，等於白帶。留言的圖往往就是那則留言的重點（對話截圖、憑證、公告），
+     * 看不清楚就沒有意義。
+     */
+    const imageMaxW = textW;
+    const imageMaxH = Math.round(textW * MAX_IMAGE_ASPECT);
     const imageCorner = Math.round(size * 0.3);
 
     ctx.font = font(nameSize, 700);
