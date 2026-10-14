@@ -816,3 +816,49 @@ async function runVideoCardFlow({ realtime }) {
 test("影片貼文：離線合成，影片畫進卡片、輸出可解碼", () => runVideoCardFlow({ realtime: false }));
 
 test("影片貼文：不支援 WebCodecs 時退回即時錄製", () => runVideoCardFlow({ realtime: true }));
+
+test("留言的附圖畫到整個留言欄寬", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+
+  // 貼文本身不帶圖，畫布上出現的那塊測試色就是留言的附圖。
+  fakePost = fakeWorkerPost({
+    comments: [
+      {
+        username: "alice",
+        name: "Alice",
+        avatar: null,
+        text: "附圖留言",
+        likes: 3,
+        image: `https://cdn.test/swatch-${SWATCHES[0].key}.png`,
+      },
+    ],
+  });
+
+  await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+  await page.evaluate(() => {
+    document.querySelectorAll("details").forEach((d) => (d.open = true));
+  });
+  await page.fill("#intake", "https://www.threads.com/@someone/post/FakeCode");
+  await page.evaluate(() => document.querySelector("#apply").click());
+  await page.waitForTimeout(800);
+  // 留言預設不勾（卡片預設不畫留言），要畫出來才量得到。
+  await page.evaluate(() => document.querySelector(".comment-row input[type=checkbox]").click());
+  await page.waitForTimeout(800);
+
+  const width = await page.evaluate(() => document.querySelector("#canvas").width);
+  const box = (await cellBoxes(page, 1)).A;
+  await page.close();
+
+  assert.ok(box, "留言的附圖沒有畫出來");
+  /*
+   * 以前的高度上限（約內文九行）會把一張直式截圖壓成兩成寬的小圖，字糊到
+   * 讀不出來 —— 而留言的圖往往就是那則留言的重點。門檻取一半卡片寬：
+   * 真的畫到整欄會落在六成以上，壓回小圖則遠低於此。
+   */
+  assert.ok(
+    box.w > width * 0.5,
+    `留言附圖被縮得太小：${box.w}px，卡片寬 ${width}px`,
+  );
+  const ratio = box.h / box.w;
+  assert.ok(Math.abs(ratio - 1200 / 800) < 0.02, `留言附圖比例跑掉：${ratio.toFixed(3)}`);
+});
