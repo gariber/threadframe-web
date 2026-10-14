@@ -491,6 +491,8 @@ function layout(
   assets: Assets,
   contentW: number,
   slots?: MediaSlot[],
+  /** 單張貼文圖與留言附圖的高度上限要再乘上的倍數，見 renderCard 的比例處理。 */
+  imageFit = 1,
 ): Metrics {
   const ink = style.textColor;
   const size = style.textSize;
@@ -632,7 +634,10 @@ function layout(
     if (images.length === 1) {
       // 單張維持原始比例，不裁切。
       const img = images[0];
-      height = Math.min((bodyW * img.naturalHeight) / img.naturalWidth, bodyW * MAX_IMAGE_ASPECT);
+      height = Math.min(
+        (bodyW * img.naturalHeight) / img.naturalWidth,
+        bodyW * MAX_IMAGE_ASPECT * imageFit,
+      );
       cells = [{ x: 0, y: 0, w: bodyW, h: height }];
       single = true;
     } else {
@@ -935,7 +940,7 @@ function layout(
      * 看不清楚就沒有意義。
      */
     const imageMaxW = textW;
-    const imageMaxH = Math.round(textW * MAX_IMAGE_ASPECT);
+    const imageMaxH = Math.round(textW * MAX_IMAGE_ASPECT * imageFit);
     const imageCorner = Math.round(size * 0.3);
 
     ctx.font = font(nameSize, 700);
@@ -1192,11 +1197,6 @@ export function renderCard(
   const panelPad = Math.round(style.textSize * 1.4);
   const contentW = EXPORT_W - pad * 2 - panelPad * 2;
 
-  // 第一次量測用的 context 狀態不影響輸出，只是要拿到文字寬度。
-  const metrics = layout(ctx, post, style, assets, Math.max(80, contentW), slots);
-  const panelH = metrics.height + panelPad * 2;
-  const contentH = panelH + pad * 2;
-
   /*
    * 比例給的是**最小高度**，不是固定高度：內容比它長時卡片就往下長。
    * 這樣「9:16」對長貼文才不會把內容裁掉，短貼文又拿得到限時動態的版型。
@@ -1207,6 +1207,42 @@ export function renderCard(
     square: EXPORT_W,
     auto: 0,
   };
+  const target = MIN_HEIGHT[style.ratio] ?? 0;
+  const measure = (fit: number, out?: MediaSlot[]) =>
+    // 量測用的 context 狀態不影響輸出，只是要拿到文字寬度。
+    layout(ctx, post, style, assets, Math.max(80, contentW), out, fit).height + panelPad * 2 + pad * 2;
+
+  /*
+   * 選了比例，圖片就要讓位到放得進去。
+   *
+   * 圖片畫到整欄寬之後，一張手機截圖就比 9:16 還高 —— 卡片照「最小高度」的
+   * 規則往下長，四種比例畫出來變成同一個高度，比例等於失效。所以先照完整
+   * 尺寸量一次；超出比例時，把單張圖與留言附圖的高度上限一起縮，二分搜尋
+   * 出剛好放得下的倍數。「自動高度」不設限，圖片永遠是完整大小。
+   *
+   * 縮到 MIN_FIT 還放不下（多半是內文本身就太長）就停手，讓卡片往下長 ——
+   * 圖片縮成看不見的小點，比卡片長一點更糟。
+   */
+  const MIN_FIT = 0.25;
+  let fit = 1;
+  if (target > 0 && measure(1) > target) {
+    let lo = MIN_FIT;
+    let hi = 1;
+    if (measure(lo) > target) fit = lo;
+    else {
+      for (let i = 0; i < 8; i++) {
+        const mid = (lo + hi) / 2;
+        if (measure(mid) > target) hi = mid;
+        else lo = mid;
+      }
+      fit = lo;
+    }
+  }
+
+  const metrics = layout(ctx, post, style, assets, Math.max(80, contentW), slots, fit);
+  const panelH = metrics.height + panelPad * 2;
+  const contentH = panelH + pad * 2;
+
   // 高度一律取偶數：錄成影片時 H.264 要求長寬都是偶數，奇數高度會讓錄製失敗。
   const minH = Math.max(contentH, MIN_HEIGHT[style.ratio] ?? 0);
   const H = minH + (minH % 2);

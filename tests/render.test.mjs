@@ -862,3 +862,49 @@ test("留言的附圖畫到整個留言欄寬", async () => {
   const ratio = box.h / box.w;
   assert.ok(Math.abs(ratio - 1200 / 800) < 0.02, `留言附圖比例跑掉：${ratio.toFixed(3)}`);
 });
+
+test("選了比例，圖片會縮到放得進去；自動高度則照完整尺寸", async () => {
+  const page = await browser.newPage({ viewport: { width: 900, height: 1400 } });
+
+  // 一則帶著直圖附圖的留言：完整尺寸畫下去，內容會比 4:5 還高。
+  fakePost = fakeWorkerPost({
+    comments: [
+      {
+        username: "alice",
+        name: "Alice",
+        avatar: null,
+        text: "附圖留言",
+        likes: 3,
+        image: `https://cdn.test/swatch-${SWATCHES[0].key}.png`,
+      },
+    ],
+  });
+
+  await page.goto(`${origin}?worker=${encodeURIComponent(fakeWorker)}`, { waitUntil: "load" });
+  await page.evaluate(() => {
+    document.querySelectorAll("details").forEach((d) => (d.open = true));
+  });
+  await page.fill("#intake", "https://www.threads.com/@someone/post/FakeCode");
+  await page.evaluate(() => document.querySelector("#apply").click());
+  await page.waitForTimeout(800);
+  await page.evaluate(() => document.querySelector(".comment-row input[type=checkbox]").click());
+  await page.waitForTimeout(800);
+
+  const heightFor = async (value) => {
+    await page.evaluate((v) => document.querySelector(`input[name=ratio][value=${v}]`).click(), value);
+    await page.waitForTimeout(300);
+    return page.evaluate(() => document.querySelector("#canvas").height);
+  };
+  const auto = await heightFor("auto");
+  const portrait = await heightFor("portrait");
+  const tall = await heightFor("tall");
+  await page.close();
+
+  /*
+   * 圖片畫到整欄寬之後，內容一度比 9:16 還高 —— 卡片照「最小高度」往下長，
+   * 四種比例畫出來全是同一個高度，選比例沒有任何作用。
+   */
+  assert.ok(auto > 1350, `這個測試需要內容比 4:5 高才有意義（自動高度只有 ${auto}px）`);
+  assert.equal(portrait, 1350, "選了 4:5，卡片卻沒有維持 4:5");
+  assert.equal(tall, 1920, "選了 9:16，卡片卻沒有維持 9:16");
+});
